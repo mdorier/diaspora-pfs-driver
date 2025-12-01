@@ -11,17 +11,19 @@
 namespace pfs {
 
 /**
- * Manages the 4 files per partition:
+ * Manages the 3 files per partition:
  * - data: Binary file with event data back-to-back
  * - metadata: Binary file with event metadata back-to-back
- * - data-index: Offset/size pairs (64-bit unsigned each)
- * - metadata-index: Offset/size pairs (64-bit unsigned each)
+ * - index: Combined index with 4 uint64_t values per event:
+ *          (metadata_offset, metadata_size, data_offset, data_size)
  */
 class PartitionFiles {
 public:
     struct IndexEntry {
-        uint64_t offset;
-        uint64_t size;
+        uint64_t metadata_offset;
+        uint64_t metadata_size;
+        uint64_t data_offset;
+        uint64_t data_size;
     };
 
     /**
@@ -76,18 +78,11 @@ public:
     std::vector<char> readData(uint64_t event_id);
 
     /**
-     * Get metadata index entry for a specific event
+     * Get index entry for a specific event
      * @param event_id Event ID (0-based)
-     * @return Index entry with offset and size
+     * @return Index entry with all offsets and sizes
      */
-    IndexEntry getMetadataIndex(uint64_t event_id);
-
-    /**
-     * Get data index entry for a specific event
-     * @param event_id Event ID (0-based)
-     * @return Index entry with offset and size
-     */
-    IndexEntry getDataIndex(uint64_t event_id);
+    IndexEntry getIndexEntry(uint64_t event_id);
 
     /**
      * Get the number of events in this partition
@@ -95,14 +90,19 @@ public:
      */
     uint64_t numEvents() const { return m_num_events; }
 
+    /**
+     * Refresh the event count from disk
+     * This is useful when multiple processes/objects may be writing to the same partition
+     */
+    void refreshEventCount();
+
 private:
     std::string m_base_path;
 
     // File descriptors
     int m_data_fd;
     int m_metadata_fd;
-    int m_data_index_fd;
-    int m_metadata_index_fd;
+    int m_index_fd;
 
     // Configuration
     bool m_use_locking;
@@ -115,12 +115,12 @@ private:
     uint64_t m_num_events;
 
     /**
-     * Open or create the 4 partition files
+     * Open or create the 3 partition files
      */
     void openOrCreateFiles();
 
     /**
-     * Load index summary (count of events) from index files
+     * Load index summary (count of events) from index file
      */
     void loadIndexSummary();
 
@@ -145,14 +145,15 @@ private:
     void closeFiles();
 
     /**
-     * Write an index entry
+     * Write an index entry (4 uint64_t values)
      */
-    void writeIndexEntry(int index_fd, uint64_t offset, uint64_t size);
+    void writeIndexEntry(uint64_t metadata_offset, uint64_t metadata_size,
+                         uint64_t data_offset, uint64_t data_size);
 
     /**
      * Read an index entry
      */
-    IndexEntry readIndexEntry(int index_fd, uint64_t event_id);
+    IndexEntry readIndexEntry(uint64_t event_id);
 
     /**
      * Get file size

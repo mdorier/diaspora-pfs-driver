@@ -6,7 +6,8 @@ echo "================================================"
 echo "Before Test"
 echo "================================================"
 
-# Deploy your service here
+mkdir -p ./diaspora_data
+rm -rf ./diaspora_data/* || true
 
-echo "==> Service is ready"
+echo "==> File system is ready"
 echo "================================================"

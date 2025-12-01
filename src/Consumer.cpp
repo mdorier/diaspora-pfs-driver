@@ -75,6 +75,9 @@ diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
                 size_t partition_idx = (m_current_partition + i) % m_topic->m_partitions.size();
                 auto& partition = m_topic->getPartition(partition_idx);
 
+                // Refresh event count to ensure we have the latest value
+                partition.refreshEventCount();
+
                 // Check if this partition has more events
                 if (m_partition_offsets[partition_idx] < partition.numEvents()) {
                     // Read metadata and data from files

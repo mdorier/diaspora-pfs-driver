@@ -7,6 +7,6 @@ echo "================================================"
 RET=$1 # This is the return code of the test
 echo "Test return $RET"
 
-# Shutdown your service here
+rm -rf ./diaspora_data || true
 
 echo "================================================"
