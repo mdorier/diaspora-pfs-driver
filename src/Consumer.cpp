@@ -98,19 +98,14 @@ diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
 
                     // Allocate data using data allocator
                     diaspora::DataView allocated_view;
-                    if (m_data_allocator) {
+                    if(m_data_allocator) {
                         allocated_view = m_data_allocator(metadata, selected_descriptor);
-                        // Copy the data to the allocated memory
-                        if (allocated_view.size() > 0 && selected_descriptor.size() > 0) {
-                            const auto& segments = allocated_view.segments();
-                            if (!segments.empty()) {
-                                size_t copy_size = std::min(allocated_view.size(), data_buffer.size());
-                                std::memcpy(segments[0].ptr, data_buffer.data(), copy_size);
-                            }
+                        auto data_ptr = data_buffer.data();
+                        size_t allocated_view_offset = 0;
+                        for(auto& segment : selected_descriptor.flatten()) {
+                            allocated_view.write(data_ptr + segment.offset, segment.size, allocated_view_offset);
+                            allocated_view_offset += segment.size;
                         }
-                    } else {
-                        // If no allocator, use the data buffer directly
-                        allocated_view = diaspora::DataView{data_buffer.data(), data_buffer.size()};
                     }
 
                     // Create event

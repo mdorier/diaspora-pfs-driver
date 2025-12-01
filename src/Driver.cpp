@@ -1,4 +1,5 @@
 #include "pfs/Driver.hpp"
+#include "pfs/ComponentSerializer.hpp"
 #include <nlohmann/json.hpp>
 #include <fstream>
 #include <sstream>
@@ -50,11 +51,81 @@ std::shared_ptr<PfsTopicHandle> PfsDriver::loadTopic(
     const std::string& topic_name,
     const std::filesystem::path& topic_path) {
 
-    // For now, we'll implement a basic version that doesn't load metadata
-    // Component serialization will be added in the next phase
-    throw diaspora::Exception{
-        "Loading existing topics not yet implemented - will be added with ComponentSerializer"
-    };
+    namespace fs = std::filesystem;
+
+    try {
+        // Load component metadata from JSON files
+        auto validator = ComponentSerializer::loadValidator(topic_path / "validator.json");
+        auto serializer = ComponentSerializer::loadSerializer(topic_path / "serializer.json");
+        auto selector = ComponentSerializer::loadPartitionSelector(topic_path / "partition-selector.json");
+
+        // Discover partitions by scanning the partitions directory
+        auto partitions_path = topic_path / "partitions";
+        if (!fs::exists(partitions_path) || !fs::is_directory(partitions_path)) {
+            throw diaspora::Exception{
+                "Partitions directory not found for topic: " + topic_name
+            };
+        }
+
+        // Count and validate partitions
+        size_t max_partition = 0;
+        bool found_any = false;
+
+        for (const auto& entry : fs::directory_iterator(partitions_path)) {
+            if (!entry.is_directory()) continue;
+
+            std::string dirname = entry.path().filename().string();
+
+            // Parse partition number from "00000000", "00000001", etc.
+            try {
+                size_t partition_num = std::stoull(dirname);
+                max_partition = std::max(max_partition, partition_num);
+                found_any = true;
+            } catch (...) {
+                // Skip non-numeric directories
+                continue;
+            }
+        }
+
+        if (!found_any) {
+            throw diaspora::Exception{
+                "No valid partitions found for topic: " + topic_name
+            };
+        }
+
+        size_t num_partitions = max_partition + 1;
+
+        // Build partition info vector
+        std::vector<diaspora::PartitionInfo> pinfo;
+        for (size_t i = 0; i < num_partitions; ++i) {
+            pinfo.push_back(diaspora::PartitionInfo{"{}"});
+        }
+
+        // Set partitions in selector
+        if (selector) {
+            selector.setPartitions(pinfo);
+        }
+
+        // Create topic handle
+        return std::make_shared<PfsTopicHandle>(
+            topic_name,
+            topic_path.string(),
+            num_partitions,
+            pinfo,
+            std::move(validator),
+            std::move(selector),
+            std::move(serializer),
+            m_config,
+            shared_from_this()
+        );
+
+    } catch (const diaspora::Exception&) {
+        throw;  // Re-throw diaspora exceptions
+    } catch (const std::exception& e) {
+        throw diaspora::Exception{
+            "Failed to load topic '" + topic_name + "': " + std::string(e.what())
+        };
+    }
 }
 
 size_t PfsDriver::parseNumPartitions(const diaspora::Metadata& options) {
@@ -82,11 +153,29 @@ void PfsDriver::saveComponentMetadata(
     const std::shared_ptr<diaspora::PartitionSelectorInterface>& selector,
     const std::shared_ptr<diaspora::SerializerInterface>& serializer) {
 
-    // Placeholder - will be implemented with ComponentSerializer
-    // For now, just create empty JSON files
-    std::ofstream(topic_path / "validator.json") << "{}";
-    std::ofstream(topic_path / "serializer.json") << "{}";
-    std::ofstream(topic_path / "partition-selector.json") << "{}";
+    try {
+        // Save validator
+        ComponentSerializer::saveValidator(
+            topic_path / "validator.json",
+            diaspora::Validator(validator)
+        );
+
+        // Save serializer
+        ComponentSerializer::saveSerializer(
+            topic_path / "serializer.json",
+            diaspora::Serializer(serializer)
+        );
+
+        // Save partition selector
+        ComponentSerializer::savePartitionSelector(
+            topic_path / "partition-selector.json",
+            diaspora::PartitionSelector(selector)
+        );
+    } catch (const diaspora::Exception& e) {
+        throw diaspora::Exception{
+            "Failed to save component metadata: " + std::string(e.what())
+        };
+    }
 }
 
 void PfsDriver::createTopic(std::string_view name,

@@ -11,7 +11,7 @@
 namespace pfs {
 
 class PfsDriver : public diaspora::DriverInterface,
-                     public std::enable_shared_from_this<PfsDriver> {
+                  public std::enable_shared_from_this<PfsDriver> {
 
     PfsConfig m_config;
     std::shared_ptr<diaspora::ThreadPoolInterface> m_default_thread_pool =
