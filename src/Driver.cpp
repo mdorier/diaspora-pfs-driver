@@ -20,38 +20,22 @@ PfsDriver::PfsDriver(PfsConfig config)
             "Failed to create root directory: " + std::string(e.what())
         };
     }
-
-    // Load existing topics
-    loadExistingTopics();
-}
-
-void PfsDriver::loadExistingTopics() {
-    namespace fs = std::filesystem;
-
-    if (!fs::exists(m_config.root_path)) {
-        return;  // No topics yet
-    }
-
-    for (const auto& entry : fs::directory_iterator(m_config.root_path)) {
-        if (!entry.is_directory()) continue;
-
-        std::string topic_name = entry.path().filename().string();
-
-        try {
-            auto topic = loadTopic(topic_name, entry.path());
-            m_topics[topic_name] = topic;
-        } catch (const diaspora::Exception& e) {
-            // Log warning but continue loading other topics
-            // For now, just skip invalid topics
-        }
-    }
 }
 
 std::shared_ptr<PfsTopicHandle> PfsDriver::loadTopic(
-    const std::string& topic_name,
-    const std::filesystem::path& topic_path) {
+    const std::string& topic_name) const {
 
     namespace fs = std::filesystem;
+
+    // Construct topic path
+    fs::path topic_path = fs::path(m_config.root_path) / topic_name;
+
+    // Check if topic directory exists
+    if (!fs::exists(topic_path) || !fs::is_directory(topic_path)) {
+        throw diaspora::Exception{
+            "Topic directory does not exist: " + topic_path.string()
+        };
+    }
 
     try {
         // Load component metadata from JSON files
@@ -107,6 +91,8 @@ std::shared_ptr<PfsTopicHandle> PfsDriver::loadTopic(
         }
 
         // Create topic handle
+        // Use const_pointer_cast because we're in a const method but TopicHandle needs non-const driver pointer
+        auto driver = std::const_pointer_cast<PfsDriver>(shared_from_this());
         return std::make_shared<PfsTopicHandle>(
             topic_name,
             topic_path.string(),
@@ -116,7 +102,7 @@ std::shared_ptr<PfsTopicHandle> PfsDriver::loadTopic(
             std::move(selector),
             std::move(serializer),
             m_config,
-            shared_from_this()
+            driver
         );
 
     } catch (const diaspora::Exception&) {
@@ -183,18 +169,18 @@ void PfsDriver::createTopic(std::string_view name,
                              std::shared_ptr<diaspora::ValidatorInterface> validator,
                              std::shared_ptr<diaspora::PartitionSelectorInterface> selector,
                              std::shared_ptr<diaspora::SerializerInterface> serializer) {
-    std::unique_lock lock(m_topics_mutex);
-
-    if(m_topics.count(std::string{name})) {
-        throw diaspora::Exception{"Topic already exists"};
-    }
-
-    // Parse num_partitions from options
-    size_t num_partitions = parseNumPartitions(options);
 
     // Create directory structure
     namespace fs = std::filesystem;
     fs::path topic_path = fs::path(m_config.root_path) / std::string{name};
+
+    // Check if topic directory already exists
+    if (fs::exists(topic_path)) {
+        throw diaspora::Exception{"Topic already exists: " + std::string{name}};
+    }
+
+    // Parse num_partitions from options
+    size_t num_partitions = parseNumPartitions(options);
 
     try {
         fs::create_directories(topic_path);
@@ -214,30 +200,21 @@ void PfsDriver::createTopic(std::string_view name,
         // Save component metadata to JSON files
         saveComponentMetadata(topic_path, validator, selector, serializer);
 
-        // Create topic handle
-        m_topics.emplace(
-            std::piecewise_construct,
-            std::forward_as_tuple(std::string{name}),
-            std::forward_as_tuple(
-                std::make_shared<PfsTopicHandle>(
-                    std::string{name},
-                    topic_path.string(),
-                    num_partitions,
-                    pinfo,
-                    std::move(validator),
-                    std::move(selector),
-                    std::move(serializer),
-                    m_config,
-                    shared_from_this()
-                )
-            )
-        );
-
     } catch (const fs::filesystem_error& e) {
         throw diaspora::Exception{
             "Failed to create topic directory structure: " + std::string(e.what())
         };
     }
+}
+
+std::shared_ptr<diaspora::TopicHandleInterface> PfsDriver::openTopic(std::string_view name) const {
+    return loadTopic(std::string{name});
+}
+
+bool PfsDriver::topicExists(std::string_view name) const {
+    namespace fs = std::filesystem;
+    fs::path topic_path = fs::path(m_config.root_path) / std::string{name};
+    return fs::exists(topic_path) && fs::is_directory(topic_path);
 }
 
 }

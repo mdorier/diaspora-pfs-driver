@@ -7,6 +7,14 @@ $HERE/pre-test.sh
 echo "==> Generating configuration for backend"
 echo "{}" > benchmark_config.json
 
+echo "==> Creating topic"
+python $HERE/create-topic-for-benchmark.py
+r="$?"
+if [ "$r" -ne "0" ]; then
+    $HERE/post-test.sh $r
+    exit 1
+fi
+
 echo "==> Running producer benchmark"
 diaspora-producer-benchmark -d diaspora_pfs \
                             -c benchmark_config.json \

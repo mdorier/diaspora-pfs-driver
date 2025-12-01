@@ -16,8 +16,6 @@ class PfsDriver : public diaspora::DriverInterface,
     PfsConfig m_config;
     std::shared_ptr<diaspora::ThreadPoolInterface> m_default_thread_pool =
         std::make_shared<PfsThreadPool>(diaspora::ThreadCount{0});
-    mutable std::shared_mutex m_topics_mutex;
-    std::unordered_map<std::string, std::shared_ptr<PfsTopicHandle>> m_topics;
 
     public:
 
@@ -31,18 +29,9 @@ class PfsDriver : public diaspora::DriverInterface,
                      std::shared_ptr<diaspora::PartitionSelectorInterface> selector,
                      std::shared_ptr<diaspora::SerializerInterface> serializer) override;
 
-    std::shared_ptr<diaspora::TopicHandleInterface> openTopic(std::string_view name) const override {
-        std::shared_lock lock(m_topics_mutex);
-        auto it = m_topics.find(std::string{name});
-        if(it == m_topics.end())
-            throw diaspora::Exception{"Could not find topic \"" + std::string{name} + "\""};
-        return it->second;
-    }
+    std::shared_ptr<diaspora::TopicHandleInterface> openTopic(std::string_view name) const override;
 
-    bool topicExists(std::string_view name) const override {
-        std::shared_lock lock(m_topics_mutex);
-        return m_topics.count(std::string{name});
-    }
+    bool topicExists(std::string_view name) const override;
 
     std::shared_ptr<diaspora::ThreadPoolInterface> defaultThreadPool() const override {
         return m_default_thread_pool;
@@ -58,9 +47,7 @@ class PfsDriver : public diaspora::DriverInterface,
     }
 
 private:
-    void loadExistingTopics();
-    std::shared_ptr<PfsTopicHandle> loadTopic(const std::string& topic_name,
-                                                const std::filesystem::path& topic_path);
+    std::shared_ptr<PfsTopicHandle> loadTopic(const std::string& topic_name) const;
     size_t parseNumPartitions(const diaspora::Metadata& options);
     std::string formatPartitionDir(size_t partition_index);
     void saveComponentMetadata(const std::filesystem::path& topic_path,
