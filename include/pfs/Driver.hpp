@@ -4,43 +4,35 @@
 #include <diaspora/Driver.hpp>
 #include <pfs/ThreadPool.hpp>
 #include <pfs/TopicHandle.hpp>
+#include <pfs/Config.hpp>
+#include <shared_mutex>
+#include <filesystem>
 
 namespace pfs {
 
 class PfsDriver : public diaspora::DriverInterface,
                      public std::enable_shared_from_this<PfsDriver> {
 
+    PfsConfig m_config;
     std::shared_ptr<diaspora::ThreadPoolInterface> m_default_thread_pool =
         std::make_shared<PfsThreadPool>(diaspora::ThreadCount{0});
+    mutable std::shared_mutex m_topics_mutex;
     std::unordered_map<std::string, std::shared_ptr<PfsTopicHandle>> m_topics;
 
     public:
+
+    explicit PfsDriver(PfsConfig config);
+
+    const PfsConfig& config() const { return m_config; }
 
     void createTopic(std::string_view name,
                      const diaspora::Metadata& options,
                      std::shared_ptr<diaspora::ValidatorInterface> validator,
                      std::shared_ptr<diaspora::PartitionSelectorInterface> selector,
-                     std::shared_ptr<diaspora::SerializerInterface> serializer) override {
-        (void)options;
-        if(m_topics.count(std::string{name})) throw diaspora::Exception{"Topic already exists"};
-        std::vector<diaspora::PartitionInfo> pinfo{diaspora::PartitionInfo{"{}"}};
-        if(selector) selector->setPartitions(pinfo);
-        m_topics.emplace(
-            std::piecewise_construct,
-            std::forward_as_tuple(std::string{name}),
-            std::forward_as_tuple(
-                std::make_shared<PfsTopicHandle>(
-                    std::string{name},
-                    std::move(validator),
-                    std::move(selector),
-                    std::move(serializer),
-                    shared_from_this()
-                )
-            )
-        );
-    }
+                     std::shared_ptr<diaspora::SerializerInterface> serializer) override;
 
     std::shared_ptr<diaspora::TopicHandleInterface> openTopic(std::string_view name) const override {
+        std::shared_lock lock(m_topics_mutex);
         auto it = m_topics.find(std::string{name});
         if(it == m_topics.end())
             throw diaspora::Exception{"Could not find topic \"" + std::string{name} + "\""};
@@ -48,6 +40,7 @@ class PfsDriver : public diaspora::DriverInterface,
     }
 
     bool topicExists(std::string_view name) const override {
+        std::shared_lock lock(m_topics_mutex);
         return m_topics.count(std::string{name});
     }
 
@@ -59,9 +52,21 @@ class PfsDriver : public diaspora::DriverInterface,
         return std::make_shared<PfsThreadPool>(count);
     }
 
-    static inline std::shared_ptr<diaspora::DriverInterface> create(const diaspora::Metadata&) {
-        return std::make_shared<PfsDriver>();
+    static inline std::shared_ptr<diaspora::DriverInterface> create(const diaspora::Metadata& metadata) {
+        auto config = PfsConfig::fromMetadata(metadata);
+        return std::make_shared<PfsDriver>(config);
     }
+
+private:
+    void loadExistingTopics();
+    std::shared_ptr<PfsTopicHandle> loadTopic(const std::string& topic_name,
+                                                const std::filesystem::path& topic_path);
+    size_t parseNumPartitions(const diaspora::Metadata& options);
+    std::string formatPartitionDir(size_t partition_index);
+    void saveComponentMetadata(const std::filesystem::path& topic_path,
+                                const std::shared_ptr<diaspora::ValidatorInterface>& validator,
+                                const std::shared_ptr<diaspora::PartitionSelectorInterface>& selector,
+                                const std::shared_ptr<diaspora::SerializerInterface>& serializer);
 };
 
 }

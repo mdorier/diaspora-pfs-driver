@@ -18,7 +18,8 @@ class PfsConsumer final : public diaspora::ConsumerInterface {
     const diaspora::DataAllocator         m_data_allocator;
     const diaspora::DataSelector          m_data_selector;
 
-    size_t                                m_next_offset = 0;
+    std::vector<size_t>                   m_partition_offsets;
+    size_t                                m_current_partition = 0;
 
     public:
 

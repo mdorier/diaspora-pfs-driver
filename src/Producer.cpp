@@ -10,9 +10,21 @@ std::shared_ptr<diaspora::TopicHandleInterface> PfsProducer::topic() const {
 }
 
 diaspora::Future<std::optional<diaspora::Flushed>> PfsProducer::flush() {
+    auto state = std::make_shared<FutureState<std::optional<diaspora::Flushed>>>();
+    m_thread_pool->pushWork([topic=m_topic, state]() {
+        try {
+            // Flush all partitions
+            for (size_t i = 0; i < topic->m_partitions.size(); ++i) {
+                topic->getPartition(i).flush();
+            }
+            state->set(diaspora::Flushed{});
+        } catch(const diaspora::Exception& ex) {
+            state->set(ex);
+        }
+    });
     return {
-        [](int){ return diaspora::Flushed{}; },
-        []() { return true; }
+        [state](int timeout_ms) { return state->wait(timeout_ms); },
+        [state] { return state->test(); }
     };
 }
 
@@ -36,13 +48,10 @@ diaspora::Future<std::optional<diaspora::EventID>> PfsProducer::push(
             data_buffer.resize(data.size());
             data.read(data_buffer.data(), data_buffer.size());
             // partition selection
-            auto index = topic->m_partition_selector.selectPartitionFor(metadata, partition);
-            if(index != 0) throw diaspora::Exception{"Invalid index returned by PartitionSelector"};
-            auto& metadata_vector = topic->m_partition.metadata;
-            auto& data_vector = topic->m_partition.data;
-            metadata_vector.push_back(std::move(metadata_buffer));
-            data_vector.push_back(std::move(data_buffer));
-            auto event_id = metadata_vector.size()-1;
+            auto partition_index = topic->m_partition_selector.selectPartitionFor(metadata, partition);
+            // Write to file
+            auto& partition_files = topic->getPartition(partition_index);
+            auto event_id = partition_files.appendEvent(metadata_buffer, data_buffer);
             // set the ID
             state->set(event_id);
             } catch(const diaspora::Exception& ex) {

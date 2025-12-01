@@ -8,7 +8,7 @@ echo "==> Generating configuration for backend"
 echo "{}" > benchmark_config.json
 
 echo "==> Running producer benchmark"
-diaspora-producer-benchmark -d diaspora_pfs_driver \
+diaspora-producer-benchmark -d diaspora_pfs \
                             -c benchmark_config.json \
                             -t my_topic \
                             -n 100 \
@@ -24,7 +24,7 @@ if [ "$r" -ne "0" ]; then
 fi
 
 echo "==> Running consumer benchmark"
-diaspora-consumer-benchmark -d diaspora_pfs_driver \
+diaspora-consumer-benchmark -d diaspora_pfs \
                             -c benchmark_config.json \
                             -t my_topic \
                             -n 100 \

@@ -2,8 +2,13 @@
 #define DIASPORA_PFS_DRIVER_TOPIC_HANDLE_HPP
 
 #include <diaspora/TopicHandle.hpp>
+#include <pfs/PartitionFiles.hpp>
+#include <pfs/Config.hpp>
 
 #include <vector>
+#include <memory>
+#include <sstream>
+#include <iomanip>
 
 namespace pfs {
 
@@ -15,34 +20,42 @@ class PfsTopicHandle final : public diaspora::TopicHandleInterface,
     friend class PfsProducer;
     friend class PfsConsumer;
 
-    struct Partition {
-        std::vector<std::vector<char>> metadata;
-        std::vector<std::vector<char>> data;
-    };
-
     const std::string                          m_name;
-    const std::vector<diaspora::PartitionInfo> m_pinfo = {diaspora::PartitionInfo("{}")};
+    const std::string                          m_topic_path;
+    const std::vector<diaspora::PartitionInfo> m_pinfo;
     const diaspora::Validator                  m_validator;
     const diaspora::PartitionSelector          m_partition_selector;
     const diaspora::Serializer                 m_serializer;
+    const PfsConfig                            m_config;
     const std::shared_ptr<PfsDriver>           m_driver;
 
-    Partition                                  m_partition;
+    std::vector<std::unique_ptr<PartitionFiles>> m_partitions;
 
     public:
 
     PfsTopicHandle(
         std::string name,
+        std::string topic_path,
+        size_t num_partitions,
+        std::vector<diaspora::PartitionInfo> pinfo,
         diaspora::Validator validator,
         diaspora::PartitionSelector partition_selector,
         diaspora::Serializer serializer,
-        std::shared_ptr<PfsDriver> driver)
-    : m_name{std::move(name)}
-    , m_validator(std::move(validator))
-    , m_partition_selector(std::move(partition_selector))
-    , m_serializer(std::move(serializer))
-    , m_driver{std::move(driver)}
-    {}
+        PfsConfig config,
+        std::shared_ptr<PfsDriver> driver);
+
+    PartitionFiles& getPartition(size_t index) {
+        if (index >= m_partitions.size()) {
+            throw diaspora::Exception{"Invalid partition index"};
+        }
+        return *m_partitions[index];
+    }
+
+    static std::string formatPartitionDir(size_t index) {
+        std::ostringstream oss;
+        oss << std::setfill('0') << std::setw(8) << index;
+        return oss.str();
+    }
 
     const std::string& name() const override {
         return m_name;

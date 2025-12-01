@@ -14,6 +14,7 @@ set (diaspora-pfs-vers "${DIASPORA_PFS_DRIVER_VERSION_MAJOR}.${DIASPORA_PFS_DRIV
 add_library (diaspora_pfs ${src-files})
 target_link_libraries (diaspora_pfs
     PUBLIC diaspora-stream-api
+    PRIVATE nlohmann_json::nlohmann_json
     PRIVATE coverage_config warnings_config)
 target_include_directories (diaspora_pfs PUBLIC $<INSTALL_INTERFACE:include>)
 target_include_directories (diaspora_pfs BEFORE PUBLIC

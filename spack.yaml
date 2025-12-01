@@ -2,6 +2,7 @@ spack:
   specs:
   - cmake
   - diaspora-stream-api
+  - nlohmann-json
   concretizer:
     unify: true
     reuse: true

@@ -2,7 +2,7 @@ set (DIASPORA_PFS_DRIVER_TEST_BACKEND_ARGS "{}")
 set (DIASPORA_PFS_DRIVER_TEST_TOPIC_ARGS "{}")
 
 add_test (NAME DiasporaTestSuite COMMAND
-          diaspora-run-tests.sh diaspora_pfs_driver
+          diaspora-run-tests.sh diaspora_pfs
                                 --before ${CMAKE_CURRENT_SOURCE_DIR}/pre-test.sh
                                 --after ${CMAKE_CURRENT_SOURCE_DIR}/post-test.sh
                                 --backend-args ${DIASPORA_PFS_DRIVER_TEST_BACKEND_ARGS}

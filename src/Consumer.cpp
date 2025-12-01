@@ -2,8 +2,13 @@
 #include "pfs/Driver.hpp"
 #include "pfs/TopicHandle.hpp"
 #include "pfs/ThreadPool.hpp"
+#include "pfs/Event.hpp"
+#include "FutureState.hpp"
 
+#include <diaspora/BufferWrapperArchive.hpp>
 #include <condition_variable>
+#include <cstring>
+#include <algorithm>
 
 namespace pfs {
 
@@ -22,6 +27,7 @@ PfsConsumer::PfsConsumer(
 , m_topic(std::move(topic))
 , m_data_allocator{std::move(data_allocator)}
 , m_data_selector{std::move(data_selector)}
+, m_partition_offsets(m_topic->m_partitions.size(), 0)
 {}
 
 std::shared_ptr<diaspora::TopicHandleInterface> PfsConsumer::topic() const {
@@ -60,8 +66,82 @@ void PfsConsumer::process(
 }
 
 diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
-    // TODO
-    throw diaspora::Exception{"PfsConsumer::pull not implemented"};
+    auto state = std::make_shared<FutureState<std::optional<diaspora::Event>>>();
+
+    m_thread_pool->pushWork([this, state]() {
+        try {
+            // Try each partition in round-robin order
+            for (size_t i = 0; i < m_topic->m_partitions.size(); ++i) {
+                size_t partition_idx = (m_current_partition + i) % m_topic->m_partitions.size();
+                auto& partition = m_topic->getPartition(partition_idx);
+
+                // Check if this partition has more events
+                if (m_partition_offsets[partition_idx] < partition.numEvents()) {
+                    // Read metadata and data from files
+                    auto metadata_buffer = partition.readMetadata(m_partition_offsets[partition_idx]);
+                    auto data_buffer = partition.readData(m_partition_offsets[partition_idx]);
+
+                    // Deserialize metadata
+                    diaspora::Metadata metadata;
+                    std::string_view metadata_view(metadata_buffer.data(), metadata_buffer.size());
+                    diaspora::BufferWrapperInputArchive archive(metadata_view);
+                    m_topic->serializer().deserialize(archive, metadata);
+
+                    // Create data descriptor for the full data
+                    diaspora::DataDescriptor full_descriptor("", data_buffer.size());
+
+                    // Apply data selector if present
+                    diaspora::DataDescriptor selected_descriptor = full_descriptor;
+                    if (m_data_selector) {
+                        selected_descriptor = m_data_selector(metadata, full_descriptor);
+                    }
+
+                    // Allocate data using data allocator
+                    diaspora::DataView allocated_view;
+                    if (m_data_allocator) {
+                        allocated_view = m_data_allocator(metadata, selected_descriptor);
+                        // Copy the data to the allocated memory
+                        if (allocated_view.size() > 0 && selected_descriptor.size() > 0) {
+                            const auto& segments = allocated_view.segments();
+                            if (!segments.empty()) {
+                                size_t copy_size = std::min(allocated_view.size(), data_buffer.size());
+                                std::memcpy(segments[0].ptr, data_buffer.data(), copy_size);
+                            }
+                        }
+                    } else {
+                        // If no allocator, use the data buffer directly
+                        allocated_view = diaspora::DataView{data_buffer.data(), data_buffer.size()};
+                    }
+
+                    // Create event
+                    auto event = diaspora::Event(std::make_shared<PfsEvent>(
+                        std::move(metadata),
+                        allocated_view,
+                        m_topic->partitions()[partition_idx],
+                        m_partition_offsets[partition_idx]
+                    ));
+
+                    // Increment offset for next pull
+                    m_partition_offsets[partition_idx]++;
+                    m_current_partition = (partition_idx + 1) % m_topic->m_partitions.size();
+
+                    state->set(event);
+                    return;
+                }
+            }
+
+            // No events available in any partition
+            state->set(std::nullopt);
+
+        } catch(const diaspora::Exception& ex) {
+            state->set(ex);
+        }
+    });
+
+    return {
+        [state](int timeout_ms) { return state->wait(timeout_ms); },
+        [state] { return state->test(); }
+    };
 }
 
 }

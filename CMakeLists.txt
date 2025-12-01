@@ -58,6 +58,8 @@ endif ()
 
 # search for diaspora-stream-api
 find_package (diaspora-stream-api REQUIRED)
+# search for nlohmann_json
+find_package (nlohmann_json REQUIRED)
 
 add_subdirectory (src)
 
