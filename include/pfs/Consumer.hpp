@@ -6,15 +6,15 @@
 
 #include <diaspora/Consumer.hpp>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-class DiasporaPfsDriverConsumer final : public diaspora::ConsumerInterface {
+class PfsConsumer final : public diaspora::ConsumerInterface {
 
     const std::string                     m_name;
     const diaspora::BatchSize             m_batch_size;
     const diaspora::MaxNumBatches         m_max_num_batches;
-    const std::shared_ptr<DiasporaPfsDriverThreadPool>  m_thread_pool;
-    const std::shared_ptr<DiasporaPfsDriverTopicHandle> m_topic;
+    const std::shared_ptr<PfsThreadPool>  m_thread_pool;
+    const std::shared_ptr<PfsTopicHandle> m_topic;
     const diaspora::DataAllocator         m_data_allocator;
     const diaspora::DataSelector          m_data_selector;
 
@@ -22,12 +22,12 @@ class DiasporaPfsDriverConsumer final : public diaspora::ConsumerInterface {
 
     public:
 
-    DiasporaPfsDriverConsumer(
+    PfsConsumer(
         std::string name,
         diaspora::BatchSize batch_size,
         diaspora::MaxNumBatches max_num_batches,
-        std::shared_ptr<DiasporaPfsDriverThreadPool> thread_pool,
-        std::shared_ptr<DiasporaPfsDriverTopicHandle> topic,
+        std::shared_ptr<PfsThreadPool> thread_pool,
+        std::shared_ptr<PfsTopicHandle> topic,
         diaspora::DataAllocator data_allocator,
         diaspora::DataSelector data_selector);
 

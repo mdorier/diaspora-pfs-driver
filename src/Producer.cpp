@@ -3,20 +3,20 @@
 #include "pfs/TopicHandle.hpp"
 #include <diaspora/BufferWrapperArchive.hpp>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-std::shared_ptr<diaspora::TopicHandleInterface> DiasporaPfsDriverProducer::topic() const {
+std::shared_ptr<diaspora::TopicHandleInterface> PfsProducer::topic() const {
     return m_topic;
 }
 
-diaspora::Future<std::optional<diaspora::Flushed>> DiasporaPfsDriverProducer::flush() {
+diaspora::Future<std::optional<diaspora::Flushed>> PfsProducer::flush() {
     return {
         [](int){ return diaspora::Flushed{}; },
         []() { return true; }
     };
 }
 
-diaspora::Future<std::optional<diaspora::EventID>> DiasporaPfsDriverProducer::push(
+diaspora::Future<std::optional<diaspora::EventID>> PfsProducer::push(
         diaspora::Metadata metadata,
         diaspora::DataView data,
         std::optional<size_t> partition) {

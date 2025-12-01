@@ -6,7 +6,7 @@
 #include <condition_variable>
 #include <variant>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
 template<typename T>
 struct FutureState {

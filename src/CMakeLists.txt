@@ -5,49 +5,49 @@ file (GLOB src-files "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp")
 include (CMakePackageConfigHelpers)
 
 # where to install files for "find_package"
-set (pfs-pkg "share/cmake/pfs")
+set (diaspora-pfs-driver-pkg "share/cmake/diaspora-pfs-driver")
 
 # set version fo shared library
-set (pfs-vers "${diaspora_pfs_driver_VERSION_MAJOR}.${diaspora_pfs_driver_VERSION_MINOR}")
+set (diaspora-pfs-vers "${DIASPORA_PFS_DRIVER_VERSION_MAJOR}.${DIASPORA_PFS_DRIVER_VERSION_MINOR}")
 
 # target library
-add_library (diaspora_pfs_driver ${src-files})
-target_link_libraries (diaspora_pfs_driver
+add_library (diaspora_pfs ${src-files})
+target_link_libraries (diaspora_pfs
     PUBLIC diaspora-stream-api
     PRIVATE coverage_config warnings_config)
-target_include_directories (diaspora_pfs_driver PUBLIC $<INSTALL_INTERFACE:include>)
-target_include_directories (diaspora_pfs_driver BEFORE PUBLIC
+target_include_directories (diaspora_pfs PUBLIC $<INSTALL_INTERFACE:include>)
+target_include_directories (diaspora_pfs BEFORE PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/../include>)
-target_include_directories (diaspora_pfs_driver BEFORE PUBLIC
+target_include_directories (diaspora_pfs BEFORE PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_BINARY_DIR}>)
-set_target_properties (diaspora_pfs_driver
+set_target_properties (diaspora_pfs
     PROPERTIES VERSION ${DIASPORA_PFS_DRIVER_VERSION}
     SOVERSION ${DIASPORA_PFS_DRIVER_VERSION_MAJOR})
 
 # installation stuff (packaging and install commands)
 write_basic_package_version_file (
-    "pfs-config-version.cmake"
+    "diaspora-pfs-driver-config-version.cmake"
     VERSION ${DIASPORA_PFS_DRIVER_VERSION}
     COMPATIBILITY AnyNewerVersion)
 
 # generate our config file for find_package()
 set (INCLUDE_INSTALL_DIR include/)
 set (LIB_INSTALL_DIR lib/)
-configure_package_config_file (pfs-config.cmake.in
-  ${CMAKE_CURRENT_BINARY_DIR}/pfs-config.cmake
+configure_package_config_file (diaspora-pfs-driver-config.cmake.in
+  ${CMAKE_CURRENT_BINARY_DIR}/diaspora-pfs-driver-config.cmake
   INSTALL_DESTINATION ${LIB_INSTALL_DIR}/mofka/cmake
   PATH_VARS INCLUDE_INSTALL_DIR)
 
-install (TARGETS diaspora_pfs_driver
-         EXPORT pfs-targets
+install (TARGETS diaspora_pfs
+         EXPORT diaspora-pfs-driver-targets
          ARCHIVE DESTINATION lib
          LIBRARY DESTINATION lib)
-install (EXPORT pfs-targets
-         DESTINATION ${pfs-pkg}
-         FILE "pfs-targets.cmake")
-install (FILES "${CMAKE_CURRENT_BINARY_DIR}/pfs-config.cmake"
-         "${CMAKE_CURRENT_BINARY_DIR}/pfs-config-version.cmake"
-         DESTINATION ${pfs-pkg} )
+install (EXPORT diaspora-pfs-driver-targets
+         DESTINATION ${diaspora-pfs-driver-pkg}
+         FILE "diaspora-pfs-driver-targets.cmake")
+install (FILES "${CMAKE_CURRENT_BINARY_DIR}/diaspora-pfs-driver-config.cmake"
+         "${CMAKE_CURRENT_BINARY_DIR}/diaspora-pfs-driver-config-version.cmake"
+         DESTINATION ${diaspora-pfs-driver-pkg} )
 install (DIRECTORY ../include/pfs
          DESTINATION include
          FILES_MATCHING PATTERN "*.hpp")

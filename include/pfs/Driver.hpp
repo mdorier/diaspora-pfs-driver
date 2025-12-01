@@ -5,14 +5,14 @@
 #include <pfs/ThreadPool.hpp>
 #include <pfs/TopicHandle.hpp>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-class DiasporaPfsDriverDriver : public diaspora::DriverInterface,
-                     public std::enable_shared_from_this<DiasporaPfsDriverDriver> {
+class PfsDriver : public diaspora::DriverInterface,
+                     public std::enable_shared_from_this<PfsDriver> {
 
     std::shared_ptr<diaspora::ThreadPoolInterface> m_default_thread_pool =
-        std::make_shared<DiasporaPfsDriverThreadPool>(diaspora::ThreadCount{0});
-    std::unordered_map<std::string, std::shared_ptr<DiasporaPfsDriverTopicHandle>> m_topics;
+        std::make_shared<PfsThreadPool>(diaspora::ThreadCount{0});
+    std::unordered_map<std::string, std::shared_ptr<PfsTopicHandle>> m_topics;
 
     public:
 
@@ -29,7 +29,7 @@ class DiasporaPfsDriverDriver : public diaspora::DriverInterface,
             std::piecewise_construct,
             std::forward_as_tuple(std::string{name}),
             std::forward_as_tuple(
-                std::make_shared<DiasporaPfsDriverTopicHandle>(
+                std::make_shared<PfsTopicHandle>(
                     std::string{name},
                     std::move(validator),
                     std::move(selector),
@@ -56,11 +56,11 @@ class DiasporaPfsDriverDriver : public diaspora::DriverInterface,
     }
 
     std::shared_ptr<diaspora::ThreadPoolInterface> makeThreadPool(diaspora::ThreadCount count) const override {
-        return std::make_shared<DiasporaPfsDriverThreadPool>(count);
+        return std::make_shared<PfsThreadPool>(count);
     }
 
     static inline std::shared_ptr<diaspora::DriverInterface> create(const diaspora::Metadata&) {
-        return std::make_shared<DiasporaPfsDriverDriver>();
+        return std::make_shared<PfsDriver>();
     }
 };
 

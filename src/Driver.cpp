@@ -1,7 +1,7 @@
 #include "pfs/Driver.hpp"
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-DIASPORA_REGISTER_DRIVER(diaspora_pfs_driver, diaspora_pfs_driver, DiasporaPfsDriverDriver);
+DIASPORA_REGISTER_DRIVER(diaspora_pfs, pfs, PfsDriver);
 
 }

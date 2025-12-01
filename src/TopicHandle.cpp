@@ -3,14 +3,14 @@
 #include "pfs/Producer.hpp"
 #include "pfs/Consumer.hpp"
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-std::shared_ptr<diaspora::DriverInterface> DiasporaPfsDriverTopicHandle::driver() const {
+std::shared_ptr<diaspora::DriverInterface> PfsTopicHandle::driver() const {
     return m_driver;
 }
 
 std::shared_ptr<diaspora::ProducerInterface>
-DiasporaPfsDriverTopicHandle::makeProducer(std::string_view name,
+PfsTopicHandle::makeProducer(std::string_view name,
         diaspora::BatchSize batch_size,
         diaspora::MaxNumBatches max_batch,
         diaspora::Ordering ordering,
@@ -18,16 +18,16 @@ DiasporaPfsDriverTopicHandle::makeProducer(std::string_view name,
         diaspora::Metadata options) {
     (void)options;
     if(!thread_pool) thread_pool = m_driver->makeThreadPool(diaspora::ThreadCount{0});
-    auto simple_thread_pool = std::dynamic_pointer_cast<DiasporaPfsDriverThreadPool>(thread_pool);
+    auto simple_thread_pool = std::dynamic_pointer_cast<PfsThreadPool>(thread_pool);
     if(!simple_thread_pool)
-        throw diaspora::Exception{"ThreadPool should be an instance of DiasporaPfsDriverThreadPool"};
-    return std::make_shared<DiasporaPfsDriverProducer>(
+        throw diaspora::Exception{"ThreadPool should be an instance of PfsThreadPool"};
+    return std::make_shared<PfsProducer>(
             std::string{name}, batch_size, max_batch, ordering, simple_thread_pool,
             shared_from_this());
 }
 
 std::shared_ptr<diaspora::ConsumerInterface>
-DiasporaPfsDriverTopicHandle::makeConsumer(std::string_view name,
+PfsTopicHandle::makeConsumer(std::string_view name,
         diaspora::BatchSize batch_size,
         diaspora::MaxNumBatches max_batch,
         std::shared_ptr<diaspora::ThreadPoolInterface> thread_pool,
@@ -38,10 +38,10 @@ DiasporaPfsDriverTopicHandle::makeConsumer(std::string_view name,
     (void)options;
     (void)targets;
     if(!thread_pool) thread_pool = m_driver->makeThreadPool(diaspora::ThreadCount{0});
-    auto simple_thread_pool = std::dynamic_pointer_cast<DiasporaPfsDriverThreadPool>(thread_pool);
+    auto simple_thread_pool = std::dynamic_pointer_cast<PfsThreadPool>(thread_pool);
     if(!simple_thread_pool)
-        throw diaspora::Exception{"ThreadPool should be an instance of DiasporaPfsDriverThreadPool"};
-    return std::make_shared<DiasporaPfsDriverConsumer>(
+        throw diaspora::Exception{"ThreadPool should be an instance of PfsThreadPool"};
+    return std::make_shared<PfsConsumer>(
             std::string{name}, batch_size, max_batch, simple_thread_pool,
             shared_from_this(), std::move(data_allocator),
             std::move(data_selector));

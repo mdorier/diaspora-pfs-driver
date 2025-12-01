@@ -3,9 +3,9 @@
 
 #include <diaspora/Event.hpp>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-class DiasporaPfsDriverEvent : public diaspora::EventInterface {
+class PfsEvent : public diaspora::EventInterface {
 
     diaspora::Metadata      m_metadata;
     diaspora::DataView      m_data;
@@ -14,7 +14,7 @@ class DiasporaPfsDriverEvent : public diaspora::EventInterface {
 
     public:
 
-    DiasporaPfsDriverEvent(diaspora::Metadata metadata,
+    PfsEvent(diaspora::Metadata metadata,
                 diaspora::DataView data,
                 diaspora::PartitionInfo partition,
                 diaspora::EventID id)

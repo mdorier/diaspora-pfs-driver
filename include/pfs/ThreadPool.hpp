@@ -10,9 +10,9 @@
 #include <condition_variable>
 #include <atomic>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-class DiasporaPfsDriverThreadPool final : public diaspora::ThreadPoolInterface {
+class PfsThreadPool final : public diaspora::ThreadPoolInterface {
 
     struct Work {
 
@@ -36,7 +36,7 @@ class DiasporaPfsDriverThreadPool final : public diaspora::ThreadPoolInterface {
 
     public:
 
-    DiasporaPfsDriverThreadPool(diaspora::ThreadCount count) {
+    PfsThreadPool(diaspora::ThreadCount count) {
         m_threads.reserve(count.count);
         for(size_t i = 0; i < count.count; ++i) {
             m_threads.emplace_back([this]() {
@@ -53,7 +53,7 @@ class DiasporaPfsDriverThreadPool final : public diaspora::ThreadPoolInterface {
         }
     }
 
-    ~DiasporaPfsDriverThreadPool() {
+    ~PfsThreadPool() {
         m_must_stop = true;
         m_queue_cv.notify_all();
         for(auto& th : m_threads) th.join();

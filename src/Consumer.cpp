@@ -5,14 +5,14 @@
 
 #include <condition_variable>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-DiasporaPfsDriverConsumer::DiasporaPfsDriverConsumer(
+PfsConsumer::PfsConsumer(
         std::string name,
         diaspora::BatchSize batch_size,
         diaspora::MaxNumBatches max_num_batches,
-        std::shared_ptr<DiasporaPfsDriverThreadPool> thread_pool,
-        std::shared_ptr<DiasporaPfsDriverTopicHandle> topic,
+        std::shared_ptr<PfsThreadPool> thread_pool,
+        std::shared_ptr<PfsTopicHandle> topic,
         diaspora::DataAllocator data_allocator,
         diaspora::DataSelector data_selector)
 : m_name{std::move(name)}
@@ -24,13 +24,13 @@ DiasporaPfsDriverConsumer::DiasporaPfsDriverConsumer(
 , m_data_selector{std::move(data_selector)}
 {}
 
-std::shared_ptr<diaspora::TopicHandleInterface> DiasporaPfsDriverConsumer::topic() const {
+std::shared_ptr<diaspora::TopicHandleInterface> PfsConsumer::topic() const {
       return m_topic;
 }
 
-void DiasporaPfsDriverConsumer::unsubscribe() {}
+void PfsConsumer::unsubscribe() {}
 
-void DiasporaPfsDriverConsumer::process(
+void PfsConsumer::process(
         diaspora::EventProcessor processor,
         int timeout_ms,
         diaspora::NumEvents maxEvents,
@@ -59,9 +59,9 @@ void DiasporaPfsDriverConsumer::process(
     while(pending_events) pending_cv.wait(lock);
 }
 
-diaspora::Future<std::optional<diaspora::Event>> DiasporaPfsDriverConsumer::pull() {
+diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
     // TODO
-    throw diaspora::Exception{"DiasporaPfsDriverConsumer::pull not implemented"};
+    throw diaspora::Exception{"PfsConsumer::pull not implemented"};
 }
 
 }

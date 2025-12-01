@@ -5,15 +5,15 @@
 
 #include <vector>
 
-namespace diaspora_pfs_driver {
+namespace pfs {
 
-class DiasporaPfsDriverDriver;
+class PfsDriver;
 
-class DiasporaPfsDriverTopicHandle final : public diaspora::TopicHandleInterface,
-                             public std::enable_shared_from_this<DiasporaPfsDriverTopicHandle> {
+class PfsTopicHandle final : public diaspora::TopicHandleInterface,
+                             public std::enable_shared_from_this<PfsTopicHandle> {
 
-    friend class DiasporaPfsDriverProducer;
-    friend class DiasporaPfsDriverConsumer;
+    friend class PfsProducer;
+    friend class PfsConsumer;
 
     struct Partition {
         std::vector<std::vector<char>> metadata;
@@ -25,18 +25,18 @@ class DiasporaPfsDriverTopicHandle final : public diaspora::TopicHandleInterface
     const diaspora::Validator                  m_validator;
     const diaspora::PartitionSelector          m_partition_selector;
     const diaspora::Serializer                 m_serializer;
-    const std::shared_ptr<DiasporaPfsDriverDriver>           m_driver;
+    const std::shared_ptr<PfsDriver>           m_driver;
 
     Partition                                  m_partition;
 
     public:
 
-    DiasporaPfsDriverTopicHandle(
+    PfsTopicHandle(
         std::string name,
         diaspora::Validator validator,
         diaspora::PartitionSelector partition_selector,
         diaspora::Serializer serializer,
-        std::shared_ptr<DiasporaPfsDriverDriver> driver)
+        std::shared_ptr<PfsDriver> driver)
     : m_name{std::move(name)}
     , m_validator(std::move(validator))
     , m_partition_selector(std::move(partition_selector))
