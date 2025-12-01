@@ -1,11 +1,11 @@
-#ifndef DDD_EVENT_HPP
-#define DDD_EVENT_HPP
+#ifndef DIASPORA_PFS_DRIVER_EVENT_HPP
+#define DIASPORA_PFS_DRIVER_EVENT_HPP
 
 #include <diaspora/Event.hpp>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
-class CCCEvent : public diaspora::EventInterface {
+class DiasporaPfsDriverEvent : public diaspora::EventInterface {
 
     diaspora::Metadata      m_metadata;
     diaspora::DataView      m_data;
@@ -14,7 +14,7 @@ class CCCEvent : public diaspora::EventInterface {
 
     public:
 
-    CCCEvent(diaspora::Metadata metadata,
+    DiasporaPfsDriverEvent(diaspora::Metadata metadata,
                 diaspora::DataView data,
                 diaspora::PartitionInfo partition,
                 diaspora::EventID id)

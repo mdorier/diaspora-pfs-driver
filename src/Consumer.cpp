@@ -1,18 +1,18 @@
-#include "AAA/Consumer.hpp"
-#include "AAA/Driver.hpp"
-#include "AAA/TopicHandle.hpp"
-#include "AAA/ThreadPool.hpp"
+#include "pfs/Consumer.hpp"
+#include "pfs/Driver.hpp"
+#include "pfs/TopicHandle.hpp"
+#include "pfs/ThreadPool.hpp"
 
 #include <condition_variable>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
-CCCConsumer::CCCConsumer(
+DiasporaPfsDriverConsumer::DiasporaPfsDriverConsumer(
         std::string name,
         diaspora::BatchSize batch_size,
         diaspora::MaxNumBatches max_num_batches,
-        std::shared_ptr<CCCThreadPool> thread_pool,
-        std::shared_ptr<CCCTopicHandle> topic,
+        std::shared_ptr<DiasporaPfsDriverThreadPool> thread_pool,
+        std::shared_ptr<DiasporaPfsDriverTopicHandle> topic,
         diaspora::DataAllocator data_allocator,
         diaspora::DataSelector data_selector)
 : m_name{std::move(name)}
@@ -24,13 +24,13 @@ CCCConsumer::CCCConsumer(
 , m_data_selector{std::move(data_selector)}
 {}
 
-std::shared_ptr<diaspora::TopicHandleInterface> CCCConsumer::topic() const {
+std::shared_ptr<diaspora::TopicHandleInterface> DiasporaPfsDriverConsumer::topic() const {
       return m_topic;
 }
 
-void CCCConsumer::unsubscribe() {}
+void DiasporaPfsDriverConsumer::unsubscribe() {}
 
-void CCCConsumer::process(
+void DiasporaPfsDriverConsumer::process(
         diaspora::EventProcessor processor,
         int timeout_ms,
         diaspora::NumEvents maxEvents,
@@ -59,9 +59,9 @@ void CCCConsumer::process(
     while(pending_events) pending_cv.wait(lock);
 }
 
-diaspora::Future<std::optional<diaspora::Event>> CCCConsumer::pull() {
+diaspora::Future<std::optional<diaspora::Event>> DiasporaPfsDriverConsumer::pull() {
     // TODO
-    throw diaspora::Exception{"CCCConsumer::pull not implemented"};
+    throw diaspora::Exception{"DiasporaPfsDriverConsumer::pull not implemented"};
 }
 
 }

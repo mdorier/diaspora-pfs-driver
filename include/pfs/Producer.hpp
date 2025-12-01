@@ -1,30 +1,30 @@
-#ifndef DDD_PRODUCER_HPP
-#define DDD_PRODUCER_HPP
+#ifndef DIASPORA_PFS_DRIVER_PRODUCER_HPP
+#define DIASPORA_PFS_DRIVER_PRODUCER_HPP
 
-#include <AAA/ThreadPool.hpp>
-#include <AAA/TopicHandle.hpp>
+#include <pfs/ThreadPool.hpp>
+#include <pfs/TopicHandle.hpp>
 #include <diaspora/Producer.hpp>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
-class CCCProducer final : public diaspora::ProducerInterface {
+class DiasporaPfsDriverProducer final : public diaspora::ProducerInterface {
 
     const std::string                     m_name;
     const diaspora::BatchSize             m_batch_size;
     const diaspora::MaxNumBatches         m_max_num_batches;
     const diaspora::Ordering              m_ordering;
-    const std::shared_ptr<CCCThreadPool>  m_thread_pool;
-    const std::shared_ptr<CCCTopicHandle> m_topic;
+    const std::shared_ptr<DiasporaPfsDriverThreadPool>  m_thread_pool;
+    const std::shared_ptr<DiasporaPfsDriverTopicHandle> m_topic;
 
     public:
 
-    CCCProducer(
+    DiasporaPfsDriverProducer(
         std::string name,
         diaspora::BatchSize batch_size,
         diaspora::MaxNumBatches max_num_batches,
         diaspora::Ordering ordering,
-        std::shared_ptr<CCCThreadPool> thread_pool,
-        std::shared_ptr<CCCTopicHandle> topic)
+        std::shared_ptr<DiasporaPfsDriverThreadPool> thread_pool,
+        std::shared_ptr<DiasporaPfsDriverTopicHandle> topic)
     : m_name{std::move(name)}
     , m_batch_size(batch_size)
     , m_max_num_batches(max_num_batches)

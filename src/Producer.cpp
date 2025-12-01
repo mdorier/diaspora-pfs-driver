@@ -1,22 +1,22 @@
 #include "FutureState.hpp"
-#include "AAA/Producer.hpp"
-#include "AAA/TopicHandle.hpp"
+#include "pfs/Producer.hpp"
+#include "pfs/TopicHandle.hpp"
 #include <diaspora/BufferWrapperArchive.hpp>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
-std::shared_ptr<diaspora::TopicHandleInterface> CCCProducer::topic() const {
+std::shared_ptr<diaspora::TopicHandleInterface> DiasporaPfsDriverProducer::topic() const {
     return m_topic;
 }
 
-diaspora::Future<std::optional<diaspora::Flushed>> CCCProducer::flush() {
+diaspora::Future<std::optional<diaspora::Flushed>> DiasporaPfsDriverProducer::flush() {
     return {
         [](int){ return diaspora::Flushed{}; },
         []() { return true; }
     };
 }
 
-diaspora::Future<std::optional<diaspora::EventID>> CCCProducer::push(
+diaspora::Future<std::optional<diaspora::EventID>> DiasporaPfsDriverProducer::push(
         diaspora::Metadata metadata,
         diaspora::DataView data,
         std::optional<size_t> partition) {

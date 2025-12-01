@@ -1,19 +1,19 @@
-#ifndef DDD_TOPIC_HANDLE_HPP
-#define DDD_TOPIC_HANDLE_HPP
+#ifndef DIASPORA_PFS_DRIVER_TOPIC_HANDLE_HPP
+#define DIASPORA_PFS_DRIVER_TOPIC_HANDLE_HPP
 
 #include <diaspora/TopicHandle.hpp>
 
 #include <vector>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
-class CCCDriver;
+class DiasporaPfsDriverDriver;
 
-class CCCTopicHandle final : public diaspora::TopicHandleInterface,
-                             public std::enable_shared_from_this<CCCTopicHandle> {
+class DiasporaPfsDriverTopicHandle final : public diaspora::TopicHandleInterface,
+                             public std::enable_shared_from_this<DiasporaPfsDriverTopicHandle> {
 
-    friend class CCCProducer;
-    friend class CCCConsumer;
+    friend class DiasporaPfsDriverProducer;
+    friend class DiasporaPfsDriverConsumer;
 
     struct Partition {
         std::vector<std::vector<char>> metadata;
@@ -25,18 +25,18 @@ class CCCTopicHandle final : public diaspora::TopicHandleInterface,
     const diaspora::Validator                  m_validator;
     const diaspora::PartitionSelector          m_partition_selector;
     const diaspora::Serializer                 m_serializer;
-    const std::shared_ptr<CCCDriver>           m_driver;
+    const std::shared_ptr<DiasporaPfsDriverDriver>           m_driver;
 
     Partition                                  m_partition;
 
     public:
 
-    CCCTopicHandle(
+    DiasporaPfsDriverTopicHandle(
         std::string name,
         diaspora::Validator validator,
         diaspora::PartitionSelector partition_selector,
         diaspora::Serializer serializer,
-        std::shared_ptr<CCCDriver> driver)
+        std::shared_ptr<DiasporaPfsDriverDriver> driver)
     : m_name{std::move(name)}
     , m_validator(std::move(validator))
     , m_partition_selector(std::move(partition_selector))

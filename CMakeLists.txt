@@ -1,17 +1,17 @@
 # (C) 2020 The University of Chicago
 # See COPYRIGHT in top-level directory.
 cmake_minimum_required (VERSION 3.21)
-project (AAA C CXX)
+project (pfs C CXX)
 set (CMAKE_CXX_STANDARD 17)
 set (CMAKE_CXX_STANDARD_REQUIRED ON)
 enable_testing ()
 
 # library version set here (e.g. for shared libs).
-set (DDD_VERSION_MAJOR 0)
-set (DDD_VERSION_MINOR 1)
-set (DDD_VERSION_PATCH 0)
-set (DDD_VERSION
-    "${DDD_VERSION_MAJOR}.${DDD_VERSION_MINOR}.${DDD_VERSION_PATCH}")
+set (DIASPORA_PFS_DRIVER_VERSION_MAJOR 0)
+set (DIASPORA_PFS_DRIVER_VERSION_MINOR 1)
+set (DIASPORA_PFS_DRIVER_VERSION_PATCH 0)
+set (DIASPORA_PFS_DRIVER_VERSION
+    "${DIASPORA_PFS_DRIVER_VERSION_MAJOR}.${DIASPORA_PFS_DRIVER_VERSION_MINOR}.${DIASPORA_PFS_DRIVER_VERSION_PATCH}")
 
 add_library (coverage_config INTERFACE)
 add_library (warnings_config INTERFACE)

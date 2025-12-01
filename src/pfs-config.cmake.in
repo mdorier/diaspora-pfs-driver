@@ -1,0 +1,16 @@
+#
+# mofka-config.cmake.in
+#
+
+set (DIASPORA_PFS_DRIVER_VERSION @DIASPORA_PFS_DRIVER_VERSION@)
+
+@PACKAGE_INIT@
+
+set_and_check (DIASPORA_PFS_DRIVER_INCLUDE_DIR "@PACKAGE_INCLUDE_INSTALL_DIR@")
+
+check_required_components (pfs)
+
+include (CMakeFindDependencyMacro)
+find_dependency (diaspora-stream-api)
+
+include ("${CMAKE_CURRENT_LIST_DIR}/pfs-targets.cmake")

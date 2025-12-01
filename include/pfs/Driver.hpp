@@ -1,18 +1,18 @@
-#ifndef DDD_DRIVER_HPP
-#define DDD_DRIVER_HPP
+#ifndef DIASPORA_PFS_DRIVER_DRIVER_HPP
+#define DIASPORA_PFS_DRIVER_DRIVER_HPP
 
 #include <diaspora/Driver.hpp>
-#include <AAA/ThreadPool.hpp>
-#include <AAA/TopicHandle.hpp>
+#include <pfs/ThreadPool.hpp>
+#include <pfs/TopicHandle.hpp>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
-class CCCDriver : public diaspora::DriverInterface,
-                     public std::enable_shared_from_this<CCCDriver> {
+class DiasporaPfsDriverDriver : public diaspora::DriverInterface,
+                     public std::enable_shared_from_this<DiasporaPfsDriverDriver> {
 
     std::shared_ptr<diaspora::ThreadPoolInterface> m_default_thread_pool =
-        std::make_shared<CCCThreadPool>(diaspora::ThreadCount{0});
-    std::unordered_map<std::string, std::shared_ptr<CCCTopicHandle>> m_topics;
+        std::make_shared<DiasporaPfsDriverThreadPool>(diaspora::ThreadCount{0});
+    std::unordered_map<std::string, std::shared_ptr<DiasporaPfsDriverTopicHandle>> m_topics;
 
     public:
 
@@ -29,7 +29,7 @@ class CCCDriver : public diaspora::DriverInterface,
             std::piecewise_construct,
             std::forward_as_tuple(std::string{name}),
             std::forward_as_tuple(
-                std::make_shared<CCCTopicHandle>(
+                std::make_shared<DiasporaPfsDriverTopicHandle>(
                     std::string{name},
                     std::move(validator),
                     std::move(selector),
@@ -56,11 +56,11 @@ class CCCDriver : public diaspora::DriverInterface,
     }
 
     std::shared_ptr<diaspora::ThreadPoolInterface> makeThreadPool(diaspora::ThreadCount count) const override {
-        return std::make_shared<CCCThreadPool>(count);
+        return std::make_shared<DiasporaPfsDriverThreadPool>(count);
     }
 
     static inline std::shared_ptr<diaspora::DriverInterface> create(const diaspora::Metadata&) {
-        return std::make_shared<CCCDriver>();
+        return std::make_shared<DiasporaPfsDriverDriver>();
     }
 };
 

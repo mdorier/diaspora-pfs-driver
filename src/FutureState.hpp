@@ -1,12 +1,12 @@
-#ifndef DDD_FUTURE_STATE_H
-#define DDD_FUTURE_STATE_H
+#ifndef DIASPORA_PFS_DRIVER_FUTURE_STATE_H
+#define DIASPORA_PFS_DRIVER_FUTURE_STATE_H
 
 #include <diaspora/Exception.hpp>
 #include <mutex>
 #include <condition_variable>
 #include <variant>
 
-namespace BBB {
+namespace diaspora_pfs_driver {
 
 template<typename T>
 struct FutureState {
