@@ -29,7 +29,12 @@ struct FutureState {
 
     T wait(int timeout_ms) {
         std::unique_lock lock{mutex};
-        if(is_set) return std::get<T>(value);
+        if(is_set) {
+            if(std::holds_alternative<T>(value))
+                return std::get<T>(value);
+            else
+                throw std::get<diaspora::Exception>(value);
+        }
         if(timeout_ms > 0)
             cv.wait_for(lock, std::chrono::milliseconds{timeout_ms});
         else
