@@ -1,7 +1,6 @@
 #include "FutureState.hpp"
 #include "pfs/Producer.hpp"
 #include "pfs/TopicHandle.hpp"
-#include <diaspora/BufferWrapperArchive.hpp>
 
 namespace pfs {
 
@@ -87,11 +86,6 @@ diaspora::Future<std::optional<diaspora::EventID>> PfsProducer::push(
             // Validation
             topic->validator().validate(metadata, data);
 
-            // Serialization
-            std::vector<char> metadata_buffer;
-            diaspora::BufferWrapperOutputArchive archive(metadata_buffer);
-            topic->serializer().serialize(archive, metadata);
-
             // Partition selection
             auto partition_index = topic->m_partition_selector.selectPartitionFor(metadata, partition);
 
@@ -103,9 +97,10 @@ diaspora::Future<std::optional<diaspora::EventID>> PfsProducer::push(
                 auto& partition_files = topic->getPartition(partition_index);
                 event_id = partition_files.numEvents() + m_partition_batches[partition_index].size();
 
-                // Add to batch (WriteBatch handles data copying)
+                // Add to batch (WriteBatch serializes metadata and stores DataView directly)
                 m_partition_batches[partition_index].addEvent(
-                    std::move(metadata_buffer),
+                    metadata,
+                    topic->serializer(),
                     data
                 );
 
