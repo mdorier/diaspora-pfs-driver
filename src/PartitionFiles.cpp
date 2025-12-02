@@ -4,6 +4,7 @@
 #include <unistd.h>
 #include <sys/file.h>
 #include <sys/stat.h>
+#include <sys/uio.h>
 #include <cstring>
 #include <sstream>
 #include <iomanip>
@@ -283,7 +284,7 @@ uint64_t PartitionFiles::getFileSize(int fd) {
 }
 
 uint64_t PartitionFiles::appendEvent(const std::vector<char>& metadata,
-                                      const std::vector<char>& data) {
+                                      const diaspora::DataView& data) {
     std::lock_guard<std::mutex> lock(m_write_mutex);
 
     // Lock files if needed
@@ -303,23 +304,49 @@ uint64_t PartitionFiles::appendEvent(const std::vector<char>& metadata,
             };
         }
 
-        // Write data to data file using pwrite
+        // Write data to data file using pwritev (zero-copy for DataView segments)
         uint64_t data_offset = m_data_offset;
-        ssize_t data_written = pwrite(m_data_fd, data.data(), data.size(), data_offset);
-        if (data_written != static_cast<ssize_t>(data.size())) {
+        auto segments = data.segments();
+        size_t num_segments = segments.size();
+
+        // Calculate total data size
+        size_t total_data_size = 0;
+        for (const auto& seg : segments) {
+            total_data_size += seg.size;
+        }
+
+        ssize_t data_written = 0;
+        if (num_segments == 0) {
+            // No data to write
+            data_written = 0;
+        } else if (num_segments == 1) {
+            // Single segment - use pwrite directly
+            const auto& seg = segments[0];
+            data_written = pwrite(m_data_fd, seg.ptr, seg.size, data_offset);
+        } else {
+            // Multiple segments - use pwritev for efficiency
+            std::vector<struct iovec> iov(num_segments);
+            for (size_t i = 0; i < num_segments; ++i) {
+                iov[i].iov_base = const_cast<void*>(segments[i].ptr);
+                iov[i].iov_len = segments[i].size;
+            }
+            data_written = pwritev(m_data_fd, iov.data(), num_segments, data_offset);
+        }
+
+        if (data_written != static_cast<ssize_t>(total_data_size)) {
             throw diaspora::Exception{
                 "Failed to write data: wrote " + std::to_string(data_written) +
-                " bytes, expected " + std::to_string(data.size()) +
+                " bytes, expected " + std::to_string(total_data_size) +
                 " (errno: " + std::to_string(errno) + ")"
             };
         }
 
         // Write combined index entry
-        writeIndexEntry(metadata_offset, metadata.size(), data_offset, data.size());
+        writeIndexEntry(metadata_offset, metadata.size(), data_offset, total_data_size);
 
         // Update offsets and cached sizes
         m_metadata_offset += metadata.size();
-        m_data_offset += data.size();
+        m_data_offset += total_data_size;
         m_index_offset += 32;
         m_cached_metadata_size = m_metadata_offset;
         m_cached_data_size = m_data_offset;
@@ -380,7 +407,9 @@ std::vector<char> PartitionFiles::readMetadata(uint64_t event_id) {
     return buffer->data;
 }
 
-std::vector<char> PartitionFiles::readData(uint64_t event_id) {
+void PartitionFiles::readData(uint64_t event_id,
+                              const diaspora::DataDescriptor& descriptor,
+                              diaspora::DataView& data_view) {
     if (event_id >= m_num_events) {
         throw diaspora::Exception{
             "Invalid event_id: " + std::to_string(event_id) +
@@ -388,7 +417,7 @@ std::vector<char> PartitionFiles::readData(uint64_t event_id) {
         };
     }
 
-    // Read index entry
+    // Read index entry to know where the full data is stored on disk
     auto index_entry = readIndexEntry(event_id);
 
     // Verify index entry is valid (using cached size)
@@ -398,18 +427,39 @@ std::vector<char> PartitionFiles::readData(uint64_t event_id) {
         };
     }
 
-    // Read data using pread (atomic, no lseek needed) with pooled buffer
-    auto buffer = m_buffer_pool.acquire(index_entry.data_size);
-    buffer->data.resize(index_entry.data_size);
-    ssize_t bytes_read = pread(m_data_fd, buffer->data.data(), buffer->data.size(), index_entry.data_offset);
-    if (bytes_read != static_cast<ssize_t>(buffer->data.size())) {
-        throw diaspora::Exception{
-            "Failed to read data: read " + std::to_string(bytes_read) +
-            " bytes, expected " + std::to_string(buffer->data.size())
-        };
-    }
+    // Flatten the descriptor to get segments we need to read
+    auto segments = descriptor.flatten();
 
-    return buffer->data;
+    // Read each requested segment directly from disk into the DataView
+    size_t data_view_offset = 0;
+    for (const auto& segment : segments) {
+        // Verify segment is within the bounds of the stored data
+        if (segment.offset + segment.size > index_entry.data_size) {
+            throw diaspora::Exception{
+                "Requested segment [" + std::to_string(segment.offset) + ", " +
+                std::to_string(segment.offset + segment.size) + ") exceeds data size " +
+                std::to_string(index_entry.data_size)
+            };
+        }
+
+        // Acquire buffer from pool for this segment
+        auto buffer = m_buffer_pool.acquire(segment.size);
+        buffer->data.resize(segment.size);
+
+        // Read segment from disk at the appropriate offset
+        uint64_t disk_offset = index_entry.data_offset + segment.offset;
+        ssize_t bytes_read = pread(m_data_fd, buffer->data.data(), segment.size, disk_offset);
+        if (bytes_read != static_cast<ssize_t>(segment.size)) {
+            throw diaspora::Exception{
+                "Failed to read data segment: read " + std::to_string(bytes_read) +
+                " bytes, expected " + std::to_string(segment.size)
+            };
+        }
+
+        // Write segment into the DataView at the current offset
+        data_view.write(buffer->data.data(), segment.size, data_view_offset);
+        data_view_offset += segment.size;
+    }
 }
 
 PartitionFiles::IndexEntry PartitionFiles::getIndexEntry(uint64_t event_id) {

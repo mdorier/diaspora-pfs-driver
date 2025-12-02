@@ -80,9 +80,8 @@ diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
 
                 // Check if this partition has more events
                 if (m_partition_offsets[partition_idx] < partition.numEvents()) {
-                    // Read metadata and data from files
+                    // Read metadata from file
                     auto metadata_buffer = partition.readMetadata(m_partition_offsets[partition_idx]);
-                    auto data_buffer = partition.readData(m_partition_offsets[partition_idx]);
 
                     // Deserialize metadata
                     diaspora::Metadata metadata;
@@ -90,8 +89,12 @@ diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
                     diaspora::BufferWrapperInputArchive archive(metadata_view);
                     m_topic->serializer().deserialize(archive, metadata);
 
+                    // Get data size from index
+                    auto index_entry = partition.getIndexEntry(m_partition_offsets[partition_idx]);
+                    size_t data_size = index_entry.data_size;
+
                     // Create data descriptor for the full data
-                    diaspora::DataDescriptor full_descriptor("", data_buffer.size());
+                    diaspora::DataDescriptor full_descriptor("", data_size);
 
                     // Apply data selector if present
                     diaspora::DataDescriptor selected_descriptor = full_descriptor;
@@ -103,12 +106,10 @@ diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
                     diaspora::DataView allocated_view;
                     if(m_data_allocator) {
                         allocated_view = m_data_allocator(metadata, selected_descriptor);
-                        auto data_ptr = data_buffer.data();
-                        size_t allocated_view_offset = 0;
-                        for(auto& segment : selected_descriptor.flatten()) {
-                            allocated_view.write(data_ptr + segment.offset, segment.size, allocated_view_offset);
-                            allocated_view_offset += segment.size;
-                        }
+
+                        // Read selected data segments directly from disk into allocated_view
+                        // This is zero-copy: only the requested segments are read from disk
+                        partition.readData(m_partition_offsets[partition_idx], selected_descriptor, allocated_view);
                     }
 
                     // Create event

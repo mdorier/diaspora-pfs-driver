@@ -3,6 +3,8 @@
 
 #include <pfs/Config.hpp>
 #include <pfs/BufferPool.hpp>
+#include <diaspora/DataView.hpp>
+#include <diaspora/DataDescriptor.hpp>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -53,11 +55,11 @@ public:
     /**
      * Append an event to the partition
      * @param metadata Serialized metadata buffer
-     * @param data Serialized data buffer
+     * @param data DataView containing event data (written directly, zero-copy)
      * @return Event ID (0-based index)
      */
     uint64_t appendEvent(const std::vector<char>& metadata,
-                         const std::vector<char>& data);
+                         const diaspora::DataView& data);
 
     /**
      * Flush all buffered writes to disk
@@ -72,11 +74,14 @@ public:
     std::vector<char> readMetadata(uint64_t event_id);
 
     /**
-     * Read data for a specific event
+     * Read data for a specific event into a DataView
      * @param event_id Event ID (0-based)
-     * @return Data buffer
+     * @param descriptor DataDescriptor specifying which segments to read
+     * @param data_view DataView to write data into (must be pre-allocated with sufficient size)
      */
-    std::vector<char> readData(uint64_t event_id);
+    void readData(uint64_t event_id,
+                  const diaspora::DataDescriptor& descriptor,
+                  diaspora::DataView& data_view);
 
     /**
      * Get index entry for a specific event

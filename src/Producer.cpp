@@ -42,16 +42,14 @@ diaspora::Future<std::optional<diaspora::EventID>> PfsProducer::push(
             // validation
             topic->validator().validate(metadata, data);
             // serialization
-            std::vector<char> metadata_buffer, data_buffer;
+            std::vector<char> metadata_buffer;
             diaspora::BufferWrapperOutputArchive archive(metadata_buffer);
             topic->serializer().serialize(archive, metadata);
-            data_buffer.resize(data.size());
-            data.read(data_buffer.data(), data_buffer.size());
             // partition selection
             auto partition_index = topic->m_partition_selector.selectPartitionFor(metadata, partition);
-            // Write to file
+            // Write to file (zero-copy for data)
             auto& partition_files = topic->getPartition(partition_index);
-            auto event_id = partition_files.appendEvent(metadata_buffer, data_buffer);
+            auto event_id = partition_files.appendEvent(metadata_buffer, data);
             // set the ID
             state->set(event_id);
             } catch(const diaspora::Exception& ex) {
