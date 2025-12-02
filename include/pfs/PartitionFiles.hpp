@@ -3,6 +3,7 @@
 
 #include <pfs/Config.hpp>
 #include <pfs/BufferPool.hpp>
+#include <pfs/WriteBatch.hpp>
 #include <diaspora/DataView.hpp>
 #include <diaspora/DataDescriptor.hpp>
 #include <string>
@@ -65,14 +66,16 @@ public:
                          const diaspora::DataView& data);
 
     /**
-     * Flush all buffered writes (both write batch and fsync) to disk
+     * Flush all buffered writes to disk
      */
     void flush();
 
     /**
-     * Flush accumulated write batch to disk using vectored I/O
+     * Write a batch of events efficiently using vectored I/O
+     * @param batch WriteBatch to write (moved for efficiency)
+     * @return First event ID of the batch
      */
-    void flushBatch();
+    uint64_t writeBatch(WriteBatch&& batch);
 
     /**
      * Read metadata for a specific event
@@ -154,37 +157,6 @@ private:
 
     // Index cache for reducing index reads
     std::unique_ptr<IndexCache> m_index_cache;
-
-    // Write batching for amortizing syscall overhead
-    struct WriteBatch {
-        struct Event {
-            std::vector<char> metadata;
-            std::vector<char> data;  // Copy of actual data bytes
-        };
-        std::vector<Event> events;
-        size_t total_metadata_bytes = 0;
-        size_t total_data_bytes = 0;
-        size_t total_index_bytes = 0;
-
-        void clear() {
-            events.clear();
-            total_metadata_bytes = 0;
-            total_data_bytes = 0;
-            total_index_bytes = 0;
-        }
-
-        bool empty() const {
-            return events.empty();
-        }
-
-        size_t size() const {
-            return events.size();
-        }
-    };
-
-    WriteBatch m_write_batch;
-    static constexpr size_t BATCH_SIZE_THRESHOLD = 1024 * 1024;  // 1MB
-    static constexpr size_t BATCH_COUNT_THRESHOLD = 100;         // 100 events
 
     /**
      * Open or create the 3 partition files

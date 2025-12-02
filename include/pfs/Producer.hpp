@@ -3,7 +3,9 @@
 
 #include <pfs/ThreadPool.hpp>
 #include <pfs/TopicHandle.hpp>
+#include <pfs/WriteBatch.hpp>
 #include <diaspora/Producer.hpp>
+#include <mutex>
 
 namespace pfs {
 
@@ -16,7 +18,13 @@ class PfsProducer final : public diaspora::ProducerInterface {
     const std::shared_ptr<PfsThreadPool>  m_thread_pool;
     const std::shared_ptr<PfsTopicHandle> m_topic;
 
+    // Batch management - one batch per partition
+    std::vector<WriteBatch>               m_partition_batches;
+    std::vector<std::mutex>               m_batch_mutexes;
+
     public:
+
+    ~PfsProducer();
 
     PfsProducer(
         std::string name,
@@ -24,13 +32,7 @@ class PfsProducer final : public diaspora::ProducerInterface {
         diaspora::MaxNumBatches max_num_batches,
         diaspora::Ordering ordering,
         std::shared_ptr<PfsThreadPool> thread_pool,
-        std::shared_ptr<PfsTopicHandle> topic)
-    : m_name{std::move(name)}
-    , m_batch_size(batch_size)
-    , m_max_num_batches(max_num_batches)
-    , m_ordering(ordering)
-    , m_thread_pool(std::move(thread_pool))
-    , m_topic(std::move(topic)) {}
+        std::shared_ptr<PfsTopicHandle> topic);
 
     const std::string& name() const override {
         return m_name;

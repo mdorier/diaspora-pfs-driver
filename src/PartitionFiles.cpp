@@ -35,13 +35,6 @@ PartitionFiles::PartitionFiles(std::string_view base_path,
 }
 
 PartitionFiles::~PartitionFiles() {
-    try {
-        // Flush any pending batch before closing
-        std::lock_guard<std::mutex> lock(m_write_mutex);
-        flushBatch();
-    } catch (...) {
-        // Ignore errors during destruction
-    }
     closeFiles();
 }
 
@@ -223,119 +216,125 @@ void PartitionFiles::flushIfNeeded() {
     }
 }
 
-void PartitionFiles::flushBatch() {
-    // Note: Assumes m_write_mutex is already held by caller
-
-    if (m_write_batch.empty()) {
-        return;  // Nothing to flush
+uint64_t PartitionFiles::writeBatch(WriteBatch&& batch) {
+    if (batch.empty()) {
+        return m_num_events;  // No events written
     }
 
-    // Lock files if needed
+    std::lock_guard<std::mutex> lock(m_write_mutex);
+
     lockFile(m_data_fd);
     lockFile(m_metadata_fd);
     lockFile(m_index_fd);
 
     try {
+        uint64_t first_event_id = m_num_events;
+
         // Track starting offsets
         uint64_t metadata_start = m_metadata_offset;
         uint64_t data_start = m_data_offset;
-        uint64_t index_start = m_index_offset;
 
-        // Build iovec arrays for batch write
+        // Build iovec arrays for vectored I/O
         std::vector<struct iovec> metadata_iov;
         std::vector<struct iovec> data_iov;
         std::vector<uint64_t> index_buffer;
 
-        metadata_iov.reserve(m_write_batch.events.size());
-        index_buffer.reserve(m_write_batch.events.size() * 4);
+        metadata_iov.reserve(batch.metadata_sizes.size());
+        index_buffer.reserve(batch.metadata_sizes.size() * 4);
 
         uint64_t current_metadata_offset = metadata_start;
         uint64_t current_data_offset = data_start;
 
-        for (auto& event : m_write_batch.events) {
-            // Add metadata to iovec
+        // Build iovec arrays by iterating through the batch
+        size_t metadata_offset_in_batch = 0;
+        for (size_t i = 0; i < batch.metadata_sizes.size(); ++i) {
+            size_t metadata_size = batch.metadata_sizes[i];
+
+            // Metadata iovec
             struct iovec meta_vec;
-            meta_vec.iov_base = const_cast<char*>(event.metadata.data());
-            meta_vec.iov_len = event.metadata.size();
+            meta_vec.iov_base = batch.all_metadata.data() + metadata_offset_in_batch;
+            meta_vec.iov_len = metadata_size;
             metadata_iov.push_back(meta_vec);
 
-            // Add data to iovec
-            if (!event.data.empty()) {
-                struct iovec data_vec;
-                data_vec.iov_base = const_cast<char*>(event.data.data());
-                data_vec.iov_len = event.data.size();
-                data_iov.push_back(data_vec);
+            // Data iovec - get segments from DataView
+            auto data_segments = batch.data_views[i].segments();
+            size_t total_data_size = 0;
+            for (const auto& seg : data_segments) {
+                if (seg.size > 0) {
+                    struct iovec data_vec;
+                    data_vec.iov_base = const_cast<void*>(seg.ptr);
+                    data_vec.iov_len = seg.size;
+                    data_iov.push_back(data_vec);
+                    total_data_size += seg.size;
+                }
             }
 
-            // Add index entry
+            // Index entry
             index_buffer.push_back(current_metadata_offset);
-            index_buffer.push_back(event.metadata.size());
+            index_buffer.push_back(metadata_size);
             index_buffer.push_back(current_data_offset);
-            index_buffer.push_back(event.data.size());
+            index_buffer.push_back(total_data_size);
 
-            // Update offsets for next event
-            current_metadata_offset += event.metadata.size();
-            current_data_offset += event.data.size();
+            current_metadata_offset += metadata_size;
+            current_data_offset += total_data_size;
+            metadata_offset_in_batch += metadata_size;
         }
 
         // Write all metadata in one vectored I/O call
         if (!metadata_iov.empty()) {
-            ssize_t written = pwritev(m_metadata_fd, metadata_iov.data(), metadata_iov.size(), metadata_start);
-            if (written != static_cast<ssize_t>(m_write_batch.total_metadata_bytes)) {
+            ssize_t written = pwritev(m_metadata_fd, metadata_iov.data(),
+                                     metadata_iov.size(), metadata_start);
+            if (written != static_cast<ssize_t>(batch.total_metadata_bytes)) {
                 throw diaspora::Exception{
                     "Failed to write batch metadata: wrote " + std::to_string(written) +
-                    " bytes, expected " + std::to_string(m_write_batch.total_metadata_bytes)
+                    " bytes, expected " + std::to_string(batch.total_metadata_bytes)
                 };
             }
         }
 
         // Write all data in one vectored I/O call
         if (!data_iov.empty()) {
-            ssize_t written = pwritev(m_data_fd, data_iov.data(), data_iov.size(), data_start);
-            if (written != static_cast<ssize_t>(m_write_batch.total_data_bytes)) {
+            ssize_t written = pwritev(m_data_fd, data_iov.data(),
+                                     data_iov.size(), data_start);
+            if (written != static_cast<ssize_t>(batch.total_data_bytes)) {
                 throw diaspora::Exception{
                     "Failed to write batch data: wrote " + std::to_string(written) +
-                    " bytes, expected " + std::to_string(m_write_batch.total_data_bytes)
+                    " bytes, expected " + std::to_string(batch.total_data_bytes)
                 };
             }
         }
 
         // Write all index entries in one call
         if (!index_buffer.empty()) {
+            size_t index_bytes = index_buffer.size() * sizeof(uint64_t);
             ssize_t written = pwrite(m_index_fd, index_buffer.data(),
-                                    index_buffer.size() * sizeof(uint64_t), index_start);
-            if (written != static_cast<ssize_t>(m_write_batch.total_index_bytes)) {
+                                    index_bytes, m_index_offset);
+            if (written != static_cast<ssize_t>(index_bytes)) {
                 throw diaspora::Exception{
                     "Failed to write batch index: wrote " + std::to_string(written) +
-                    " bytes, expected " + std::to_string(m_write_batch.total_index_bytes)
+                    " bytes, expected " + std::to_string(index_bytes)
                 };
             }
         }
 
-        // Update offsets and cached sizes
-        m_metadata_offset += m_write_batch.total_metadata_bytes;
-        m_data_offset += m_write_batch.total_data_bytes;
-        m_index_offset += m_write_batch.total_index_bytes;
+        // Update offsets and counts
+        m_metadata_offset += batch.total_metadata_bytes;
+        m_data_offset += batch.total_data_bytes;
+        m_index_offset += batch.metadata_sizes.size() * 32;
         m_cached_metadata_size = m_metadata_offset;
         m_cached_data_size = m_data_offset;
         m_cached_index_size = m_index_offset;
+        m_num_events += batch.metadata_sizes.size();
 
-        // Update event count
-        m_num_events += m_write_batch.events.size();
-
-        // Clear batch
-        m_write_batch.clear();
-
-        // Flush if needed (fsync)
         flushIfNeeded();
 
-        // Unlock files
         unlockFile(m_index_fd);
         unlockFile(m_metadata_fd);
         unlockFile(m_data_fd);
 
+        return first_event_id;
+
     } catch (...) {
-        // Unlock files on error
         unlockFile(m_index_fd);
         unlockFile(m_metadata_fd);
         unlockFile(m_data_fd);
@@ -346,10 +345,6 @@ void PartitionFiles::flushBatch() {
 void PartitionFiles::flush() {
     std::lock_guard<std::mutex> lock(m_write_mutex);
 
-    // First flush any pending batch
-    flushBatch();
-
-    // Then fsync if needed
     if (m_flush_behavior != PfsConfig::FlushBehavior::BUFFERED) {
         if (fsync(m_data_fd) == -1) {
             throw diaspora::Exception{
@@ -506,46 +501,85 @@ uint64_t PartitionFiles::appendEvent(const std::vector<char>& metadata,
                                       const diaspora::DataView& data) {
     std::lock_guard<std::mutex> lock(m_write_mutex);
 
-    // Calculate total data size and copy data bytes into contiguous buffer
-    auto segments = data.segments();
-    size_t total_data_size = 0;
-    for (const auto& seg : segments) {
-        total_data_size += seg.size;
+    // Lock files if needed
+    lockFile(m_data_fd);
+    lockFile(m_metadata_fd);
+    lockFile(m_index_fd);
+
+    try {
+        // Current offset becomes the event ID
+        uint64_t event_id = m_num_events;
+
+        // Write metadata
+        uint64_t metadata_offset = m_metadata_offset;
+        ssize_t metadata_written = pwrite(m_metadata_fd, metadata.data(),
+                                         metadata.size(), metadata_offset);
+        if (metadata_written != static_cast<ssize_t>(metadata.size())) {
+            throw diaspora::Exception{
+                "Failed to write metadata: wrote " + std::to_string(metadata_written) +
+                " bytes, expected " + std::to_string(metadata.size())
+            };
+        }
+
+        // Write data (handle DataView segments)
+        uint64_t data_offset = m_data_offset;
+        auto segments = data.segments();
+        size_t total_data_size = 0;
+
+        for (const auto& seg : segments) {
+            total_data_size += seg.size;
+        }
+
+        ssize_t data_written = 0;
+        if (segments.size() == 0) {
+            // No data to write
+            data_written = 0;
+        } else if (segments.size() == 1) {
+            // Single segment - use pwrite
+            data_written = pwrite(m_data_fd, segments[0].ptr, segments[0].size, data_offset);
+        } else {
+            // Multiple segments - use pwritev for efficiency
+            std::vector<struct iovec> iov(segments.size());
+            for (size_t i = 0; i < segments.size(); ++i) {
+                iov[i].iov_base = const_cast<void*>(segments[i].ptr);
+                iov[i].iov_len = segments[i].size;
+            }
+            data_written = pwritev(m_data_fd, iov.data(), segments.size(), data_offset);
+        }
+
+        if (data_written != static_cast<ssize_t>(total_data_size)) {
+            throw diaspora::Exception{
+                "Failed to write data: wrote " + std::to_string(data_written) +
+                " bytes, expected " + std::to_string(total_data_size)
+            };
+        }
+
+        // Write index entry
+        writeIndexEntry(metadata_offset, metadata.size(), data_offset, total_data_size);
+
+        // Update offsets and counts
+        m_metadata_offset += metadata.size();
+        m_data_offset += total_data_size;
+        m_index_offset += 32;
+        m_cached_metadata_size = m_metadata_offset;
+        m_cached_data_size = m_data_offset;
+        m_cached_index_size = m_index_offset;
+        m_num_events++;
+
+        flushIfNeeded();
+
+        unlockFile(m_index_fd);
+        unlockFile(m_metadata_fd);
+        unlockFile(m_data_fd);
+
+        return event_id;
+
+    } catch (...) {
+        unlockFile(m_index_fd);
+        unlockFile(m_metadata_fd);
+        unlockFile(m_data_fd);
+        throw;
     }
-
-    // Copy all data segments into a single contiguous buffer
-    std::vector<char> data_copy;
-    data_copy.reserve(total_data_size);
-    for (const auto& seg : segments) {
-        const char* seg_data = static_cast<const char*>(seg.ptr);
-        data_copy.insert(data_copy.end(), seg_data, seg_data + seg.size);
-    }
-
-    // Add event to batch
-    WriteBatch::Event batch_event{
-        metadata,  // Copy metadata
-        std::move(data_copy)  // Move data copy
-    };
-
-    m_write_batch.events.push_back(std::move(batch_event));
-    m_write_batch.total_metadata_bytes += metadata.size();
-    m_write_batch.total_data_bytes += total_data_size;
-    m_write_batch.total_index_bytes += 32;  // 4 * uint64_t per index entry
-
-    // Get event ID that will be assigned when flushed
-    uint64_t event_id = m_num_events + m_write_batch.events.size() - 1;
-
-    // Auto-flush if thresholds reached
-    size_t total_bytes = m_write_batch.total_metadata_bytes +
-                         m_write_batch.total_data_bytes +
-                         m_write_batch.total_index_bytes;
-
-    if (total_bytes >= BATCH_SIZE_THRESHOLD ||
-        m_write_batch.events.size() >= BATCH_COUNT_THRESHOLD) {
-        flushBatch();
-    }
-
-    return event_id;
 }
 
 std::vector<char> PartitionFiles::readMetadata(uint64_t event_id) {
