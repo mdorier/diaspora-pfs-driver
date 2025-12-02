@@ -21,6 +21,10 @@ class PfsConsumer final : public diaspora::ConsumerInterface {
     std::vector<size_t>                   m_partition_offsets;
     size_t                                m_current_partition = 0;
 
+    // Prefetching state for sequential access optimization
+    std::vector<size_t>                   m_prefetch_positions;  // Last prefetched position per partition
+    static constexpr size_t               PREFETCH_WINDOW = 32;  // Prefetch 32 events ahead
+
     public:
 
     PfsConsumer(

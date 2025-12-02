@@ -28,6 +28,7 @@ PfsConsumer::PfsConsumer(
 , m_data_allocator{std::move(data_allocator)}
 , m_data_selector{std::move(data_selector)}
 , m_partition_offsets(m_topic->m_partitions.size(), 0)
+, m_prefetch_positions(m_topic->m_partitions.size(), 0)
 {}
 
 std::shared_ptr<diaspora::TopicHandleInterface> PfsConsumer::topic() const {
@@ -123,6 +124,15 @@ diaspora::Future<std::optional<diaspora::Event>> PfsConsumer::pull() {
                     // Increment offset for next pull
                     m_partition_offsets[partition_idx]++;
                     m_current_partition = (partition_idx + 1) % m_topic->m_partitions.size();
+
+                    // Trigger prefetching for sequential access optimization
+                    // If we've caught up to or passed our prefetch position, prefetch the next window
+                    if (m_partition_offsets[partition_idx] >= m_prefetch_positions[partition_idx]) {
+                        // Prefetch upcoming events asynchronously
+                        size_t prefetch_start = m_partition_offsets[partition_idx];
+                        partition.prefetchData(prefetch_start, PREFETCH_WINDOW);
+                        m_prefetch_positions[partition_idx] = prefetch_start + PREFETCH_WINDOW;
+                    }
 
                     state->set(event);
                     return;
