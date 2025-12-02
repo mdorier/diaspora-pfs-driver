@@ -21,7 +21,11 @@ PartitionFiles::PartitionFiles(std::string_view base_path,
 , m_flush_behavior(flush_behavior)
 , m_data_offset(0)
 , m_metadata_offset(0)
+, m_index_offset(0)
 , m_num_events(0)
+, m_cached_data_size(0)
+, m_cached_metadata_size(0)
+, m_cached_index_size(0)
 {
     openOrCreateFiles();
     loadIndexSummary();
@@ -40,7 +44,11 @@ PartitionFiles::PartitionFiles(PartitionFiles&& other) noexcept
 , m_flush_behavior(other.m_flush_behavior)
 , m_data_offset(other.m_data_offset)
 , m_metadata_offset(other.m_metadata_offset)
+, m_index_offset(other.m_index_offset)
 , m_num_events(other.m_num_events)
+, m_cached_data_size(other.m_cached_data_size)
+, m_cached_metadata_size(other.m_cached_metadata_size)
+, m_cached_index_size(other.m_cached_index_size)
 {
     other.m_data_fd = -1;
     other.m_metadata_fd = -1;
@@ -59,7 +67,11 @@ PartitionFiles& PartitionFiles::operator=(PartitionFiles&& other) noexcept {
         m_flush_behavior = other.m_flush_behavior;
         m_data_offset = other.m_data_offset;
         m_metadata_offset = other.m_metadata_offset;
+        m_index_offset = other.m_index_offset;
         m_num_events = other.m_num_events;
+        m_cached_data_size = other.m_cached_data_size;
+        m_cached_metadata_size = other.m_cached_metadata_size;
+        m_cached_index_size = other.m_cached_index_size;
 
         other.m_data_fd = -1;
         other.m_metadata_fd = -1;
@@ -84,6 +96,8 @@ void PartitionFiles::openOrCreateFiles() {
             ": " + std::string(strerror(errno))
         };
     }
+    // Hint sequential access pattern for data file (append-only writes, sequential reads)
+    posix_fadvise(m_data_fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 
     m_metadata_fd = open(metadata_path.c_str(), flags, mode);
     if (m_metadata_fd == -1) {
@@ -93,6 +107,8 @@ void PartitionFiles::openOrCreateFiles() {
             ": " + std::string(strerror(errno))
         };
     }
+    // Hint sequential access pattern for metadata file
+    posix_fadvise(m_metadata_fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 
     m_index_fd = open(index_path.c_str(), flags, mode);
     if (m_index_fd == -1) {
@@ -103,6 +119,8 @@ void PartitionFiles::openOrCreateFiles() {
             ": " + std::string(strerror(errno))
         };
     }
+    // Hint sequential access pattern for index file
+    posix_fadvise(m_index_fd, 0, 0, POSIX_FADV_SEQUENTIAL);
 }
 
 void PartitionFiles::closeFiles() {
@@ -132,6 +150,8 @@ void PartitionFiles::loadIndexSummary() {
 
     // Each index entry is 32 bytes (4 * 8 bytes for metadata_offset, metadata_size, data_offset, data_size)
     m_num_events = index_st.st_size / 32;
+    m_index_offset = static_cast<uint64_t>(index_st.st_size);
+    m_cached_index_size = static_cast<uint64_t>(index_st.st_size);
 
     // Get current offsets by seeking to the end of data files
     off_t data_off = lseek(m_data_fd, 0, SEEK_END);
@@ -141,6 +161,7 @@ void PartitionFiles::loadIndexSummary() {
         };
     }
     m_data_offset = static_cast<uint64_t>(data_off);
+    m_cached_data_size = static_cast<uint64_t>(data_off);
 
     off_t metadata_off = lseek(m_metadata_fd, 0, SEEK_END);
     if (metadata_off == static_cast<off_t>(-1)) {
@@ -149,6 +170,7 @@ void PartitionFiles::loadIndexSummary() {
         };
     }
     m_metadata_offset = static_cast<uint64_t>(metadata_off);
+    m_cached_metadata_size = static_cast<uint64_t>(metadata_off);
 }
 
 void PartitionFiles::lockFile(int fd) {
@@ -216,7 +238,7 @@ void PartitionFiles::flush() {
 void PartitionFiles::writeIndexEntry(uint64_t metadata_offset, uint64_t metadata_size,
                                      uint64_t data_offset, uint64_t data_size) {
     uint64_t entry[4] = {metadata_offset, metadata_size, data_offset, data_size};
-    ssize_t written = write(m_index_fd, entry, sizeof(entry));
+    ssize_t written = pwrite(m_index_fd, entry, sizeof(entry), m_index_offset);
     if (written != sizeof(entry)) {
         throw diaspora::Exception{
             "Failed to write index entry: wrote " + std::to_string(written) +
@@ -227,28 +249,19 @@ void PartitionFiles::writeIndexEntry(uint64_t metadata_offset, uint64_t metadata
 }
 
 PartitionFiles::IndexEntry PartitionFiles::readIndexEntry(uint64_t event_id) {
-    // Verify the index file is large enough for this entry
+    // Verify the index file is large enough for this entry (using cached size)
     uint64_t required_size = (event_id + 1) * 32;
-    uint64_t index_file_size = getFileSize(m_index_fd);
-    if (index_file_size < required_size) {
+    if (m_cached_index_size < required_size) {
         throw diaspora::Exception{
-            "Index file corrupted or incomplete: size is " + std::to_string(index_file_size) +
+            "Index file corrupted or incomplete: size is " + std::to_string(m_cached_index_size) +
             " bytes, but need at least " + std::to_string(required_size) +
             " bytes to read event " + std::to_string(event_id)
         };
     }
 
-    // Seek to the index entry (32 bytes per entry: 4 * 8 bytes)
-    off_t offset = lseek(m_index_fd, event_id * 32, SEEK_SET);
-    if (offset == static_cast<off_t>(-1)) {
-        throw diaspora::Exception{
-            "Failed to seek in index file: " + std::string(strerror(errno))
-        };
-    }
-
-    // Read the entry
+    // Read the index entry using pread (atomic, no lseek needed)
     uint64_t entry[4];
-    ssize_t bytes_read = read(m_index_fd, entry, sizeof(entry));
+    ssize_t bytes_read = pread(m_index_fd, entry, sizeof(entry), event_id * 32);
     if (bytes_read != sizeof(entry)) {
         throw diaspora::Exception{
             "Failed to read index entry: read " + std::to_string(bytes_read) +
@@ -279,9 +292,9 @@ uint64_t PartitionFiles::appendEvent(const std::vector<char>& metadata,
     lockFile(m_index_fd);
 
     try {
-        // Write metadata to metadata file
+        // Write metadata to metadata file using pwrite
         uint64_t metadata_offset = m_metadata_offset;
-        ssize_t metadata_written = write(m_metadata_fd, metadata.data(), metadata.size());
+        ssize_t metadata_written = pwrite(m_metadata_fd, metadata.data(), metadata.size(), metadata_offset);
         if (metadata_written != static_cast<ssize_t>(metadata.size())) {
             throw diaspora::Exception{
                 "Failed to write metadata: wrote " + std::to_string(metadata_written) +
@@ -290,9 +303,9 @@ uint64_t PartitionFiles::appendEvent(const std::vector<char>& metadata,
             };
         }
 
-        // Write data to data file
+        // Write data to data file using pwrite
         uint64_t data_offset = m_data_offset;
-        ssize_t data_written = write(m_data_fd, data.data(), data.size());
+        ssize_t data_written = pwrite(m_data_fd, data.data(), data.size(), data_offset);
         if (data_written != static_cast<ssize_t>(data.size())) {
             throw diaspora::Exception{
                 "Failed to write data: wrote " + std::to_string(data_written) +
@@ -304,9 +317,13 @@ uint64_t PartitionFiles::appendEvent(const std::vector<char>& metadata,
         // Write combined index entry
         writeIndexEntry(metadata_offset, metadata.size(), data_offset, data.size());
 
-        // Update offsets
+        // Update offsets and cached sizes
         m_metadata_offset += metadata.size();
         m_data_offset += data.size();
+        m_index_offset += 32;
+        m_cached_metadata_size = m_metadata_offset;
+        m_cached_data_size = m_data_offset;
+        m_cached_index_size = m_index_offset;
 
         // Get event ID before incrementing
         uint64_t event_id = m_num_events;
@@ -342,33 +359,25 @@ std::vector<char> PartitionFiles::readMetadata(uint64_t event_id) {
     // Read index entry
     auto index_entry = readIndexEntry(event_id);
 
-    // Verify index entry is valid
-    uint64_t file_size = getFileSize(m_metadata_fd);
-    if (index_entry.metadata_offset + index_entry.metadata_size > file_size) {
+    // Verify index entry is valid (using cached size)
+    if (index_entry.metadata_offset + index_entry.metadata_size > m_cached_metadata_size) {
         throw diaspora::Exception{
             "Corrupted metadata index: entry points beyond end of file"
         };
     }
 
-    // Seek to metadata position
-    off_t offset = lseek(m_metadata_fd, index_entry.metadata_offset, SEEK_SET);
-    if (offset == static_cast<off_t>(-1)) {
-        throw diaspora::Exception{
-            "Failed to seek in metadata file: " + std::string(strerror(errno))
-        };
-    }
-
-    // Read metadata
-    std::vector<char> metadata(index_entry.metadata_size);
-    ssize_t bytes_read = read(m_metadata_fd, metadata.data(), metadata.size());
-    if (bytes_read != static_cast<ssize_t>(metadata.size())) {
+    // Read metadata using pread (atomic, no lseek needed) with pooled buffer
+    auto buffer = m_buffer_pool.acquire(index_entry.metadata_size);
+    buffer->data.resize(index_entry.metadata_size);
+    ssize_t bytes_read = pread(m_metadata_fd, buffer->data.data(), buffer->data.size(), index_entry.metadata_offset);
+    if (bytes_read != static_cast<ssize_t>(buffer->data.size())) {
         throw diaspora::Exception{
             "Failed to read metadata: read " + std::to_string(bytes_read) +
-            " bytes, expected " + std::to_string(metadata.size())
+            " bytes, expected " + std::to_string(buffer->data.size())
         };
     }
 
-    return metadata;
+    return buffer->data;
 }
 
 std::vector<char> PartitionFiles::readData(uint64_t event_id) {
@@ -382,33 +391,25 @@ std::vector<char> PartitionFiles::readData(uint64_t event_id) {
     // Read index entry
     auto index_entry = readIndexEntry(event_id);
 
-    // Verify index entry is valid
-    uint64_t file_size = getFileSize(m_data_fd);
-    if (index_entry.data_offset + index_entry.data_size > file_size) {
+    // Verify index entry is valid (using cached size)
+    if (index_entry.data_offset + index_entry.data_size > m_cached_data_size) {
         throw diaspora::Exception{
             "Corrupted data index: entry points beyond end of file"
         };
     }
 
-    // Seek to data position
-    off_t offset = lseek(m_data_fd, index_entry.data_offset, SEEK_SET);
-    if (offset == static_cast<off_t>(-1)) {
-        throw diaspora::Exception{
-            "Failed to seek in data file: " + std::string(strerror(errno))
-        };
-    }
-
-    // Read data
-    std::vector<char> data(index_entry.data_size);
-    ssize_t bytes_read = read(m_data_fd, data.data(), data.size());
-    if (bytes_read != static_cast<ssize_t>(data.size())) {
+    // Read data using pread (atomic, no lseek needed) with pooled buffer
+    auto buffer = m_buffer_pool.acquire(index_entry.data_size);
+    buffer->data.resize(index_entry.data_size);
+    ssize_t bytes_read = pread(m_data_fd, buffer->data.data(), buffer->data.size(), index_entry.data_offset);
+    if (bytes_read != static_cast<ssize_t>(buffer->data.size())) {
         throw diaspora::Exception{
             "Failed to read data: read " + std::to_string(bytes_read) +
-            " bytes, expected " + std::to_string(data.size())
+            " bytes, expected " + std::to_string(buffer->data.size())
         };
     }
 
-    return data;
+    return buffer->data;
 }
 
 PartitionFiles::IndexEntry PartitionFiles::getIndexEntry(uint64_t event_id) {
@@ -429,6 +430,8 @@ void PartitionFiles::refreshEventCount() {
         };
     }
     m_num_events = index_st.st_size / 32;
+    m_index_offset = static_cast<uint64_t>(index_st.st_size);
+    m_cached_index_size = static_cast<uint64_t>(index_st.st_size);
 }
 
 }

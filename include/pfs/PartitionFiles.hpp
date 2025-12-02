@@ -2,6 +2,7 @@
 #define DIASPORA_PFS_DRIVER_PARTITION_FILES_HPP
 
 #include <pfs/Config.hpp>
+#include <pfs/BufferPool.hpp>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -112,7 +113,16 @@ private:
     mutable std::mutex m_write_mutex;
     uint64_t m_data_offset;
     uint64_t m_metadata_offset;
+    uint64_t m_index_offset;
     uint64_t m_num_events;
+
+    // Cached file sizes (to avoid fstat on every read)
+    uint64_t m_cached_data_size;
+    uint64_t m_cached_metadata_size;
+    uint64_t m_cached_index_size;
+
+    // Buffer pool for reducing allocations
+    BufferPool m_buffer_pool;
 
     /**
      * Open or create the 3 partition files
