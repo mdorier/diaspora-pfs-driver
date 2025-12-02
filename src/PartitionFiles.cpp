@@ -1,4 +1,5 @@
 #include "pfs/PartitionFiles.hpp"
+#include "pfs/IndexCache.hpp"
 #include <diaspora/Exception.hpp>
 #include <fcntl.h>
 #include <unistd.h>
@@ -27,6 +28,7 @@ PartitionFiles::PartitionFiles(std::string_view base_path,
 , m_cached_data_size(0)
 , m_cached_metadata_size(0)
 , m_cached_index_size(0)
+, m_index_cache(std::make_unique<IndexCache>(1024))  // 1024 entries = 32KB
 {
     openOrCreateFiles();
     loadIndexSummary();
@@ -250,6 +252,13 @@ void PartitionFiles::writeIndexEntry(uint64_t metadata_offset, uint64_t metadata
 }
 
 PartitionFiles::IndexEntry PartitionFiles::readIndexEntry(uint64_t event_id) {
+    // Check cache first
+    auto cached = m_index_cache->get(event_id);
+    if (cached.has_value()) {
+        return cached.value();  // Cache hit!
+    }
+
+    // Cache miss - read from disk
     // Verify the index file is large enough for this entry (using cached size)
     uint64_t required_size = (event_id + 1) * 32;
     if (m_cached_index_size < required_size) {
@@ -270,7 +279,55 @@ PartitionFiles::IndexEntry PartitionFiles::readIndexEntry(uint64_t event_id) {
         };
     }
 
-    return IndexEntry{entry[0], entry[1], entry[2], entry[3]};
+    IndexEntry result{entry[0], entry[1], entry[2], entry[3]};
+
+    // Cache the entry for future reads
+    m_index_cache->put(event_id, result);
+
+    return result;
+}
+
+void PartitionFiles::prefetchIndexEntries(uint64_t start_event_id, size_t count) {
+    if (count == 0 || start_event_id >= m_num_events) {
+        return;  // Nothing to prefetch
+    }
+
+    // Limit count to available events
+    count = std::min(count, static_cast<size_t>(m_num_events - start_event_id));
+
+    // Calculate how many bytes to read (32 bytes per entry)
+    size_t bytes_to_read = count * 32;
+    uint64_t disk_offset = start_event_id * 32;
+
+    // Verify we won't read beyond the index file
+    if (disk_offset + bytes_to_read > m_cached_index_size) {
+        return;  // Don't prefetch beyond file bounds
+    }
+
+    // Allocate buffer for bulk read
+    std::vector<uint64_t> buffer(count * 4);  // 4 uint64_t per entry
+
+    // Bulk read all entries in one syscall
+    ssize_t bytes_read = pread(m_index_fd, buffer.data(), bytes_to_read, disk_offset);
+    if (bytes_read != static_cast<ssize_t>(bytes_to_read)) {
+        // Prefetch failed, but don't throw - just skip it
+        return;
+    }
+
+    // Populate cache with all read entries
+    for (size_t i = 0; i < count; ++i) {
+        uint64_t event_id = start_event_id + i;
+        size_t offset = i * 4;
+
+        IndexEntry entry{
+            buffer[offset + 0],  // metadata_offset
+            buffer[offset + 1],  // metadata_size
+            buffer[offset + 2],  // data_offset
+            buffer[offset + 3]   // data_size
+        };
+
+        m_index_cache->put(event_id, entry);
+    }
 }
 
 uint64_t PartitionFiles::getFileSize(int fd) {

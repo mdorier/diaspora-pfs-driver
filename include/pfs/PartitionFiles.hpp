@@ -13,6 +13,9 @@
 
 namespace pfs {
 
+// Forward declaration to avoid circular dependency
+class IndexCache;
+
 /**
  * Manages the 3 files per partition:
  * - data: Binary file with event data back-to-back
@@ -129,6 +132,9 @@ private:
     // Buffer pool for reducing allocations
     BufferPool m_buffer_pool;
 
+    // Index cache for reducing index reads
+    std::unique_ptr<IndexCache> m_index_cache;
+
     /**
      * Open or create the 3 partition files
      */
@@ -166,9 +172,16 @@ private:
                          uint64_t data_offset, uint64_t data_size);
 
     /**
-     * Read an index entry
+     * Read an index entry (checks cache first)
      */
     IndexEntry readIndexEntry(uint64_t event_id);
+
+    /**
+     * Bulk read index entries and populate cache (for prefetching)
+     * @param start_event_id First event ID to read
+     * @param count Number of entries to read
+     */
+    void prefetchIndexEntries(uint64_t start_event_id, size_t count);
 
     /**
      * Get file size
