@@ -427,38 +427,76 @@ void PartitionFiles::readData(uint64_t event_id,
         };
     }
 
-    // Flatten the descriptor to get segments we need to read
-    auto segments = descriptor.flatten();
+    // Flatten the descriptor to get segments we need to read from disk
+    auto desc_segments = descriptor.flatten();
 
-    // Read each requested segment directly from disk into the DataView
-    size_t data_view_offset = 0;
-    for (const auto& segment : segments) {
+    // Get DataView's memory segments where we'll write the data
+    auto view_segments = data_view.segments();
+
+    // Track position in DataView segments as we fill them
+    size_t view_seg_idx = 0;
+    size_t view_seg_offset = 0;
+
+    // Read each descriptor segment directly into DataView segments using preadv
+    for (const auto& desc_seg : desc_segments) {
         // Verify segment is within the bounds of the stored data
-        if (segment.offset + segment.size > index_entry.data_size) {
+        if (desc_seg.offset + desc_seg.size > index_entry.data_size) {
             throw diaspora::Exception{
-                "Requested segment [" + std::to_string(segment.offset) + ", " +
-                std::to_string(segment.offset + segment.size) + ") exceeds data size " +
+                "Requested segment [" + std::to_string(desc_seg.offset) + ", " +
+                std::to_string(desc_seg.offset + desc_seg.size) + ") exceeds data size " +
                 std::to_string(index_entry.data_size)
             };
         }
 
-        // Acquire buffer from pool for this segment
-        auto buffer = m_buffer_pool.acquire(segment.size);
-        buffer->data.resize(segment.size);
+        uint64_t disk_offset = index_entry.data_offset + desc_seg.offset;
+        size_t remaining = desc_seg.size;
 
-        // Read segment from disk at the appropriate offset
-        uint64_t disk_offset = index_entry.data_offset + segment.offset;
-        ssize_t bytes_read = pread(m_data_fd, buffer->data.data(), segment.size, disk_offset);
-        if (bytes_read != static_cast<ssize_t>(segment.size)) {
-            throw diaspora::Exception{
-                "Failed to read data segment: read " + std::to_string(bytes_read) +
-                " bytes, expected " + std::to_string(segment.size)
-            };
+        // Build iovec array mapping this descriptor segment to DataView segment(s)
+        std::vector<struct iovec> iov;
+
+        while (remaining > 0) {
+            if (view_seg_idx >= view_segments.size()) {
+                throw diaspora::Exception{
+                    "DataView has insufficient capacity for descriptor segments"
+                };
+            }
+
+            auto& view_seg = view_segments[view_seg_idx];
+            size_t available = view_seg.size - view_seg_offset;
+            size_t chunk = std::min(remaining, available);
+
+            // Add this chunk to iovec for preadv
+            struct iovec vec;
+            vec.iov_base = static_cast<char*>(const_cast<void*>(view_seg.ptr)) + view_seg_offset;
+            vec.iov_len = chunk;
+            iov.push_back(vec);
+
+            remaining -= chunk;
+            view_seg_offset += chunk;
+
+            // Move to next DataView segment if current one is full
+            if (view_seg_offset >= view_seg.size) {
+                view_seg_idx++;
+                view_seg_offset = 0;
+            }
         }
 
-        // Write segment into the DataView at the current offset
-        data_view.write(buffer->data.data(), segment.size, data_view_offset);
-        data_view_offset += segment.size;
+        // Read from disk directly into DataView segments (true zero-copy!)
+        ssize_t bytes_read;
+        if (iov.size() == 1) {
+            // Single segment - use pread
+            bytes_read = pread(m_data_fd, iov[0].iov_base, iov[0].iov_len, disk_offset);
+        } else {
+            // Multiple segments - use preadv for vectored I/O
+            bytes_read = preadv(m_data_fd, iov.data(), iov.size(), disk_offset);
+        }
+
+        if (bytes_read != static_cast<ssize_t>(desc_seg.size)) {
+            throw diaspora::Exception{
+                "Failed to read data segment: read " + std::to_string(bytes_read) +
+                " bytes, expected " + std::to_string(desc_seg.size)
+            };
+        }
     }
 }
 
